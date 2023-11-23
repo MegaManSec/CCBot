@@ -35,7 +35,7 @@ cat <<EOL > $LOGROTATE_FILE
     compress
     missingok
     notifempty
-    create 0640 nobody nogroup
+    copytruncate
 }
 EOL
 
