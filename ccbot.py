@@ -42,7 +42,12 @@ def contains_specified_tags(tags):
         'Desktop Update',
         'Stable updates'
     }
-    return all(tag['term'] in specified_terms for tag in tags)
+    i = 0
+    for term in tags:
+      if term['term'] == "Desktop Update" or term['term'] == "Stable updates":
+        i += 1
+
+    return i == 2 #all(tag['term'] in specified_terms for tag in tags)
 
 def extract_security_content(description):
     span_pattern = r'<span.*?> {0,1}(Critical|High|Medium|Low) {0,1}.*?<\/span><span.*?>.{0,5}(CVE.*?) {0,1}<\/span>'
@@ -68,6 +73,8 @@ def extract_security_content_from_url(url):
 
 def process_rss_entry(entry):
     url = entry.link
+    if not hasattr(entry, "tags"):
+        return
 
     if not contains_specified_tags(entry.tags):
         return
@@ -145,4 +152,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
