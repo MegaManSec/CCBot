@@ -100,9 +100,11 @@ def process_rss_entry(entry):
         for cve in security_content:
             if len(cve) == 3:
                 security_issues += f"{SLACK_BULLETPOINT}*[{cve[0]}]*: {cve[1]}: {cve[2]}\n"
+            elif len(cve) == 2:
+                security_issues += f"{SLACK_BULLETPOINT}*[{cve[0]}]*: {cve[1]}\n"
             else:
                 security_issues += f"{SLACK_BULLETPOINT}Something went really wrong and the length of the regex is {len(cve)}! Check the logs..\n"
-                printf(f"Something went wrong. CVE: {cve}")
+                print(f"Something went wrong. CVE: {cve}")
 
     elif contains_security_keyword(article_content):
         security_issues += f"{SLACK_BULLETPOINT}Article contained the word 'security' but no CVEs detected. Someone should double-check..\n"
