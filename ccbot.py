@@ -13,7 +13,7 @@ import json
 
 SLACK_BULLETPOINT = ' \u2022   '
 SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
-RSS_URL = "http://feeds.feedburner.com/GoogleChromeReleases"
+RSS_URL = "https://feeds.feedburner.com/GoogleChromeReleases"
 REFRESH_INTERVAL_SECONDS = 600
 
 # If the message is greater than 4000 characters, replace the longest words (separated by spaces) with [....truncated....] until it fits.
