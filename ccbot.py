@@ -13,7 +13,7 @@ import json
 
 SLACK_BULLETPOINT = ' \u2022   '
 SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
-RSS_URL = "https://feeds.feedburner.com/GoogleChromeReleases"
+RSS_URL = [ "https://feeds.feedburner.com/GoogleChromeReleases", "https://www.blogger.com/feeds/8982037438137564684/posts/default" ]
 REFRESH_INTERVAL_SECONDS = 600
 
 # If the message is greater than 4000 characters, replace the longest words (separated by spaces) with [....truncated....] until it fits.
@@ -38,6 +38,23 @@ def send_to_slack(message):
 def get_rss_entries(rss_url):
     feed = feedparser.parse(rss_url)
     return feed.entries
+
+# Ensure that the URL is formatted with "https://"
+def normalize_url(url):
+    return "https" + url[4:] if url[:5] == "http:" else url
+
+# Retrieve multiple RSS feeds
+def get_all_rss_entries(rss_urls):
+    all_entries = []
+    seen_urls = set()
+
+    for rss_url in rss_urls:
+        entries = get_rss_entries(rss_url)
+        entries = [entry for entry in entries if normalize_url(entry.link) not in seen_urls]
+        all_entries.extend(entries)
+        seen_urls.update(normalize_url(entry.link) for entry in entries)
+
+    return all_entries
 
 # Check if an article contains the word "security"
 def contains_security_keyword(article_content):
@@ -82,7 +99,7 @@ def extract_security_content_from_url(url):
 
 # Parse a single post's details, search for security issues, and log or post to slack.
 def process_rss_entry(entry):
-    url = entry.link
+    url = normalize_url(entry.link)
     if not hasattr(entry, "tags"):
         return
 
@@ -138,17 +155,17 @@ def process_rss_entry(entry):
 def main():
     seen_urls = set()
 
-    feed_entries = get_rss_entries(RSS_URL)
+    feed_entries = get_all_rss_entries(RSS_URL)
     for entry in feed_entries:
-        url = entry.link
+        url = normalize_url(entry.link)
         seen_urls.add(url)
 
     while True:
-        feed_entries = get_rss_entries(RSS_URL)
+        feed_entries = get_all_rss_entries(RSS_URL)
         feed_entries.reverse()
 
         for entry in feed_entries:
-            url = entry.link
+            url = normalize_url(entry.link)
 
             if url in seen_urls:
                 continue
