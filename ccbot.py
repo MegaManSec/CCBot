@@ -64,12 +64,20 @@ def contains_security_keyword(article_content):
 def format_published_time(published_parsed):
     return time.strftime("[%d/%m/%y %H:%M:%S]", published_parsed)
 
-
-# Ensure that the blog post contains 'Desktop Update' and 'Stable updates' tables.
+# Ensure that the blog post contains the appropriate tags.
 def contains_specified_tags(tags):
-    specified_terms = {'Desktop Update', 'Stable updates'}
-    count_specified_terms = sum(1 for term in tags if term['term'] in specified_terms)
-    return count_specified_terms == len(specified_terms)
+    GOT_STABLE = False
+    GOT_DESKTOP = False
+
+    for term in tags:
+        if not hasattr(term, "term"):
+            continue
+        if term['term'] in ('Extended Stable updates', 'Stable updates'):
+            GOT_STABLE = True
+        if term['term'] in ('Desktop Update'):
+            GOT_DESKTOP = True
+
+    return GOT_STABLE and GOT_DESKTOP
 
 # Match the CVEs posted in the description based on HTML.
 # We use two expressions based on previous occurences.
@@ -100,11 +108,12 @@ def extract_security_content_from_url(url):
 # Parse a single post's details, search for security issues, and log or post to slack.
 def process_rss_entry(entry):
     url = normalize_url(entry.link)
-    if not hasattr(entry, "tags"):
-        return
 
-    if not contains_specified_tags(entry.tags):
-        return
+    if entry.title.lower() != "stable channel update for desktop":
+        if not hasattr(entry, "tags"):
+            return
+        if not contains_specified_tags(entry.tags):
+            return
 
     article_content = entry.get('summary', entry.get('description', ''))
     formatted_time = format_published_time(entry.published_parsed)
