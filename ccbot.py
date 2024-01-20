@@ -16,9 +16,9 @@ SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
 RSS_URL = [ "https://feeds.feedburner.com/GoogleChromeReleases", "https://www.blogger.com/feeds/8982037438137564684/posts/default" ]
 REFRESH_INTERVAL_SECONDS = 600
 
-# If the message is greater than 4000 characters, replace the longest words (separated by spaces) with [....truncated....] until it fits.
+# If the message is greater than 2000 characters, replace the longest words (separated by spaces) with [....truncated....] until it fits.
 def truncate_slack_message(message):
-    while len(message) > 4000:
+    while len(message) > 2000:
         longest_word = max(message.split(), key=len)
         message = message.replace(longest_word, "[...truncated...]")
     return message
@@ -28,8 +28,6 @@ def send_to_slack(message):
     if SLACK_WEBHOOK is None or len(SLACK_WEBHOOK) == 0:
         print(message)
         return
-
-    message = truncate_slack_message(message)
 
     headers = {'Content-type': 'application/json'}
     request = requests.post(SLACK_WEBHOOK, headers=headers, data=json.dumps(message))
@@ -141,6 +139,9 @@ def process_rss_entry(entry):
 
     if len(security_issues) == 0:
       return
+
+    slack_message = truncate_slack_message(slack_message)
+    security_issues = truncate_slack_message(security_issues)
 
     data = {
         "attachments": [
