@@ -17,6 +17,7 @@ Restart=always
 DynamicUser=yes
 Environment=SLACK_WEBHOOK_URL=$SLACK_WEBHOOK_URL
 StandardOutput=append:/var/log/ccbot.log
+StandardError=append:/var/log/ccbot_error.log
 
 [Install]
 WantedBy=default.target
