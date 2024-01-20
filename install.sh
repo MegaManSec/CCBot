@@ -1,11 +1,20 @@
 #!/bin/bash
+set -e
+
+pip3 install feedparser beautifulsoup4 requests
+
 
 if [ "$#" -eq 1 ]; then
     SLACK_WEBHOOK_URL="$1"
 fi
 
+cp ccbot.py /usr/local/bin/ccbot.py
+chmod +x /usr/local/bin/ccbot.py
+chown root:root /usr/local/bin/ccbot.py
+
 # Step 1: Create a service file for ccbot
 SERVICE_FILE="/etc/systemd/system/ccbot.service"
+
 cat <<EOL > $SERVICE_FILE
 [Unit]
 Description=ccbot Service
@@ -23,15 +32,12 @@ StandardError=append:/var/log/ccbot_error.log
 WantedBy=default.target
 EOL
 
-cp ccbot.py /usr/local/bin/ccbot.py
-chmod +x /usr/local/bin/ccbot.py
-
 # Step 3: Create a logrotate configuration file for ccbot
 LOGROTATE_FILE="/etc/logrotate.d/ccbot"
 cat <<EOL > $LOGROTATE_FILE
 /var/log/ccbot.log /var/log/ccbot_error.log {
-    daily
-    rotate 31
+    monthly
+    rotate 12
     compress
     missingok
     notifempty
@@ -47,3 +53,4 @@ systemctl start ccbot
 systemctl enable ccbot
 
 echo "ccbot has been installed, the service is started, and log rotation is set up."
+echo "ccbot has been installed in /usr/local/bin/ccbot.py, and a service has been installed in /etc/systemd/system/ccbot.service. The service is started and logging to /var/log/ccbot.log and /var/log/ccbot_error.log, and log rotation is set up in $LOGROTATE_FILE."
