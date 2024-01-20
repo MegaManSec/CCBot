@@ -55,12 +55,12 @@ The Slack message includes the following information for each security issue:
 - The script employs regex patterns for extracting security content, adapting to potential variations in the HTML structure.
 
 ## Installation
-In addition to running the script manually, a small debian-based installation script [install.sh](install.sh) is provided which when run as root, will install a systemd service to run the script in the background and log the output. The script is installed as /usr/local/bin/ccbot.py, logs are sent to /var/log/ccbot.log, and a logrotate configuration file is created in /etc/logrotate.d/ccbot.
+In addition to running the script manually, a small debian-based installation script [install.sh](install.sh) is provided which when run as root, will install a systemd service to run the script in the background and log the output. The script is installed as /usr/local/bin/ccbot.py, logs are stored in /var/log/ccbot.log and /var/log/ccbot-error.log, and a logrotate configuration file is created in /etc/logrotate.d/ccbot.
 
 An optional first parameter of the installation script can define the _SLACK_WEBHOOK_URL_ environmental variable:
 
 ```
-$ ./install.sh "https://hooks.slack.com/services/[...]"
+$ sudo ./install.sh "https://hooks.slack.com/services/[...]"
 ccbot has been installed, the service is started, and log rotation is set up.
 ```
 
