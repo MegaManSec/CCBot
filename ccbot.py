@@ -38,7 +38,7 @@ def send_to_slack(message):
 def get_rss_entries(rss_url):
     last_modified_time = last_modified_times.get(rss_url)
 
-    feed = feedparser.parse(rss_url, modified=last_modified_time)
+    feed = feedparser.parse(rss_url, modified=last_modified_time, request_headers={"Cache-Control": "max-age=0"})
 
     if hasattr(feed, 'modified'):
         last_modified_times[rss_url] = feed.modified
