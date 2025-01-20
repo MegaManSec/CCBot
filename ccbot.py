@@ -177,6 +177,9 @@ def main():
         for entry in feed_entries:
             url = normalize_url(entry.link)
 
+            while len(seen_urls) > 500: # Do not store super-old links (allows Python to garbage collect old links)
+                del seen_urls[0]
+
             if url in seen_urls:
                 continue
 
