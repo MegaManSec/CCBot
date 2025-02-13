@@ -104,6 +104,7 @@ def extract_security_content(description):
 # We first render the HTML's text itself, then match the CVEs, as this is likely more consistent than HTML.
 def extract_security_content_from_url(url):
     response = requests.get(url)
+    response.encoding = 'utf-8'
     soup = BeautifulSoup(response.text, 'html.parser')
     cve_section = soup.find('div', {'class': 'post-body'})
     cve_text = cve_section.get_text()
