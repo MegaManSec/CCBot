@@ -171,12 +171,12 @@ def process_rss_entry(entry):
     send_to_slack(data)
 
 def main():
-    seen_urls = set()
+    seen_urls = []
 
     feed_entries = get_all_rss_entries(RSS_URL)
     for entry in feed_entries:
         url = normalize_url(entry.link)
-        seen_urls.add(url)
+        seen_urls.append(url)
 
     while True:
         feed_entries = get_all_rss_entries(RSS_URL)
@@ -191,7 +191,7 @@ def main():
             if url in seen_urls:
                 continue
 
-            seen_urls.add(url)
+            seen_urls.append(url)
             process_rss_entry(entry)
 
         time.sleep(REFRESH_INTERVAL_SECONDS)
