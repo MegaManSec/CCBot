@@ -1,11 +1,13 @@
 # Chrome Checker Bot
 
-Chrome Checker Bot, also known as Chrome/Chromium Vulnerability Checker. This Python script monitors the Google Chrome release page for any announced vulnerabilities in Chrome/Chromium. It utilizes the Google Chrome Releases RSS feed to fetch the latest updates and checks for security-related content. If security issues are detected, it sends a formatted message to a specified Slack channel using a webhook.
+Chrome Checker Bot, also known as Chrome/Chromium Vulnerability Checker. This Python script monitors the Google Chrome release page for any announced vulnerabilities in Chrome/Chromium.
+It utilizes the Google Chrome Releases RSS feed to fetch the latest updates and checks for security-related content. If security issues are detected, it sends a formatted message to a specified Slack channel using a webhook.
 
 ## Prerequisites
 - Python 3.x
 - `feedparser` library (`pip install feedparser`)
 - `beautifulsoup4` library (`pip install beautifulsoup4`)
+- `requests` library (`pip install requests`)
 
 ## Configuration
 Before running the script, ensure you set up the following configurations in the script:
@@ -13,25 +15,6 @@ Before running the script, ensure you set up the following configurations in the
 - `SLACK_WEBHOOK`: Set your Slack webhook URL as an environment variable.
 - `RSS_URL`: Google Chrome Releases RSS feed URL.
 - `REFRESH_INTERVAL_SECONDS`: Time interval for checking updates in seconds.
-
-## Usage
-1. Install the required libraries:
-
-    ```bash
-    pip install feedparser beautifulsoup4
-    ```
-
-2. Set up the Slack webhook URL as an environment variable:
-
-    ```bash
-    export SLACK_WEBHOOK_URL='your_slack_webhook_url'
-    ```
-
-3. Run the script:
-
-    ```bash
-    python ccbot.py
-    ```
 
 ## Functionality
 
@@ -54,15 +37,49 @@ The Slack message includes the following information for each security issue:
 - If a security-related article is found without specific CVEs, it still notifies Slack for manual verification.
 - The script employs regex patterns for extracting security content, adapting to potential variations in the HTML structure.
 
+## Manual Usage
+
+You can run the script in your terminal with the following instructions.
+
+## Usage
+1. Set up a Python virtual environment and install the required libraries:
+
+    ```bash
+    python3 -m venv .
+    ./bin/pip install --upgrade pip
+    ./bin/pip install -r requirements.txt
+    ```
+
+2. Set up the Slack webhook URL as an environment variable:
+
+    ```bash
+    export SLACK_WEBHOOK_URL='your_slack_webhook_url'
+    ```
+
+3. Run the script:
+
+    ```bash
+    ./bin/python ccbot.py
+    ```
 ## Installation
-In addition to running the script manually, a small debian-based installation script [install.sh](install.sh) is provided which when run as root, will install a systemd service to run the script in the background and log the output. The script is installed as /usr/local/bin/ccbot.py, logs are stored in /var/log/ccbot.log and /var/log/ccbot-error.log, and a logrotate configuration file is created in /etc/logrotate.d/ccbot.
 
-An optional first parameter of the installation script can define the _SLACK_WEBHOOK_URL_ environmental variable:
+A Debian-based installation script, [install.sh](install.sh), is provided. When run as root, this script:
 
-```
-$ sudo ./install.sh "https://hooks.slack.com/services/[...]"
+1. Creates (if necessary) a Python virtual environment in `/opt/ccbot`.
+2. Installs the required packages into that virtual environment.
+3. Copies **ccbot.py** to `/usr/local/bin/ccbot.py`.
+4. Installs and enables a systemd service (`/etc/systemd/system/ccbot.service`) that runs **ccbot** in the background.
+5. Configures logging to `/var/log/ccbot.log` and `/var/log/ccbot_error.log`.
+6. Sets up log rotation in `/etc/logrotate.d/ccbot`.
+
+You may optionally pass a single argument to `install.sh` to define the `SLACK_WEBHOOK_URL` environment variable used by the script:
+
+```bash
+sudo ./install.sh "https://hooks.slack.com/services/[...]"
 ccbot has been installed, the service is started, and log rotation is set up.
 ```
+
+If you don’t provide a URL, you can manually edit /etc/systemd/system/ccbot.service later to set or change the webhook URL.
 
 ## License
 This project is licensed under [GPL3.0](/LICENSE).
