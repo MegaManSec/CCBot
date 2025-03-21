@@ -13,7 +13,7 @@ import json
 
 SLACK_BULLETPOINT = ' \u2022   '
 SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
-RSS_URL = [ "https://feeds.feedburner.com/GoogleChromeReleases", "https://www.blogger.com/feeds/8982037438137564684/posts/default" ]
+RSS_URL = [ "https://feeds.feedburner.com/GoogleChromeReleases" ] #, "https://www.blogger.com/feeds/8982037438137564684/posts/default" ] XXX: blogger.com feed seems dead
 REFRESH_INTERVAL_SECONDS = 600
 
 last_modified_times = {}
@@ -173,28 +173,39 @@ def process_rss_entry(entry):
 def main():
     seen_urls = []
 
-    feed_entries = get_all_rss_entries(RSS_URL)
-    for entry in feed_entries:
-        url = normalize_url(entry.link)
-        seen_urls.append(url)
+    while True:
+        try:
+            feed_entries = get_all_rss_entries(RSS_URL)
+            for entry in feed_entries:
+                url = normalize_url(entry.link)
+                seen_urls.append(url)
+            break
+        except Exception as e:
+            print(f"An error occurred, retrying: {e}")
+            time.sleep(REFRESH_INTERVAL_SECONDS)
 
     while True:
-        feed_entries = get_all_rss_entries(RSS_URL)
-        feed_entries.reverse()
+        try:
+            feed_entries = get_all_rss_entries(RSS_URL)
+            feed_entries.reverse()
 
-        for entry in feed_entries:
-            url = normalize_url(entry.link)
+            for entry in feed_entries:
+                url = normalize_url(entry.link)
 
-            while len(seen_urls) > 500: # Do not store super-old links (allows Python to garbage collect old links)
-                del seen_urls[0]
+                while len(seen_urls) > 500:  # Limit memory use by trimming old entries
+                    del seen_urls[0]
 
-            if url in seen_urls:
-                continue
+                if url in seen_urls:
+                    continue
 
-            seen_urls.append(url)
-            process_rss_entry(entry)
+                process_rss_entry(entry)
+                seen_urls.append(url)
 
-        time.sleep(REFRESH_INTERVAL_SECONDS)
+            time.sleep(REFRESH_INTERVAL_SECONDS)
+
+        except Exception as e:
+            print(f"An error occurred, retrying: {e}")
+            time.sleep(REFRESH_INTERVAL_SECONDS)
 
 if __name__ == "__main__":
     main()
