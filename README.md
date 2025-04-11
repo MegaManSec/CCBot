@@ -41,7 +41,7 @@ The Slack message includes the following information for each security issue:
 
 You can run the script in your terminal with the following instructions.
 
-## Usage
+### Usage
 1. Set up a Python virtual environment and install the required libraries:
 
     ```bash
