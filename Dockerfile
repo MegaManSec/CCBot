@@ -1,14 +1,11 @@
-FROM python:3.13-slim
+FROM python:3.13-alpine
 
-WORKDIR /app
+WORKDIR /src
 
-COPY requirements.txt .
+COPY setup.py MANIFEST.in README.md LICENSE ./
+COPY ccbot/ ./ccbot/
 
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir .
 
-COPY ccbot.py .
-
-CMD ["sh", "-c", "export SLACK_WEBHOOK_URL=$(cat /run/secrets/slack_webhook_url) && python app.py"]
-
-CMD ["python", "ccbot.py"]
+CMD ["ccbot"]

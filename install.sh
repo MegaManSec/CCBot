@@ -8,15 +8,11 @@ if [ ! -d "$VENV_PATH" ]; then
 fi
 
 "$VENV_PATH/bin/pip" install --upgrade pip
-"$VENV_PATH/bin/pip" install -r requirements.txt
+"$VENV_PATH/bin/pip" install .
 
 if [ "$#" -eq 1 ]; then
     SLACK_WEBHOOK_URL="$1"
 fi
-
-cp ccbot.py /usr/local/bin/ccbot.py
-chmod +x /usr/local/bin/ccbot.py
-chown root:root /usr/local/bin/ccbot.py
 
 SERVICE_FILE="/etc/systemd/system/ccbot.service"
 
@@ -27,7 +23,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$VENV_PATH/bin/python /usr/local/bin/ccbot.py
+ExecStart=$VENV_PATH/bin/ccbot
 Restart=always
 DynamicUser=yes
 Environment=SLACK_WEBHOOK_URL=$SLACK_WEBHOOK_URL
@@ -55,7 +51,7 @@ systemctl enable ccbot
 systemctl start ccbot
 
 echo "ccbot has been installed, the service is started, and log rotation is set up."
-echo " - Main script: /usr/local/bin/ccbot.py"
+echo " - Command: $VENV_PATH/bin/ccbot"
 echo " - Virtual env: $VENV_PATH"
 echo " - Systemd service: /etc/systemd/system/ccbot.service"
 echo " - Logs: /var/log/ccbot.log and /var/log/ccbot_error.log"
