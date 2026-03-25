@@ -9,7 +9,7 @@ with open("README.md", encoding="utf-8") as f:
     long_description = f.read()
 
 setup(
-    name="chrome-ccbot",
+    name="ccbot-py",
     version=version,
     author="Joshua Rogers",
     description="Chrome/Chromium Vulnerability Checker - monitors Chrome releases for CVEs and sends Slack notifications",

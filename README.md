@@ -1,5 +1,7 @@
 # Chrome Checker Bot
 
+[![PyPI version](https://badge.fury.io/py/ccbot-py.svg)](https://badge.fury.io/py/ccbot-py)
+
 Chrome Checker Bot (CCBot), also known as Chrome/Chromium Vulnerability Checker. This Python script monitors the Google Chrome release page for any announced vulnerabilities in Chrome/Chromium.
 It utilizes the Google Chrome Releases RSS feed to fetch the latest updates and checks for security-related content. If security issues are detected, it sends a formatted message to a specified Slack channel using a webhook.
 
@@ -9,7 +11,7 @@ This software was written by [Joshua Rogers](https://joshua.hu/). For more infor
 
 ### Via pip
 ```bash
-pip install chrome-ccbot
+pip install ccbot-py
 ```
 
 ### Via Docker (Docker Hub)
