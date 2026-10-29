@@ -16,6 +16,9 @@ class InstallerTests(unittest.TestCase):
             path = self.root / command
             path.write_text("#!/bin/sh\nexit 0\n")
             path.chmod(0o755)
+        (self.root / "bin/systemctl").write_text(
+            '#!/bin/sh\nprintf "%s\\n" "$*" >> "$CCBOT_TEST_COMMANDS"\n'
+        )
 
         # Relocate system paths so the real installer can run without touching the host.
         script = (Path(__file__).resolve().parents[1] / "install.sh").read_text()
@@ -31,6 +34,7 @@ class InstallerTests(unittest.TestCase):
     def run_installer(self, *args, webhook=None):
         environment = dict(os.environ)
         environment["PATH"] = str(self.root / "bin") + os.pathsep + environment["PATH"]
+        environment["CCBOT_TEST_COMMANDS"] = str(self.root / "commands.log")
         environment.pop("SLACK_WEBHOOK_URL", None)
         if webhook is not None:
             environment["SLACK_WEBHOOK_URL"] = webhook
@@ -46,6 +50,14 @@ class InstallerTests(unittest.TestCase):
         self.run_installer("https://example.test/original")
         self.run_installer()
         self.assert_webhook("https://example.test/original")
+
+    def test_install_and_reinstall_restart_the_service(self):
+        self.run_installer("https://example.test/original")
+        self.run_installer("https://example.test/replacement")
+        self.assertEqual(
+            (self.root / "commands.log").read_text().splitlines(),
+            ["daemon-reload", "enable ccbot", "restart ccbot"] * 2,
+        )
 
     def test_explicit_configuration_overrides_existing_webhook(self):
         self.run_installer("https://example.test/original")

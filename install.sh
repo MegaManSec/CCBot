@@ -50,7 +50,7 @@ EOL
 
 systemctl daemon-reload
 systemctl enable ccbot
-systemctl start ccbot
+systemctl restart ccbot
 
 echo "ccbot has been installed, the service is started, and log rotation is set up."
 echo " - Command: $VENV_PATH/bin/ccbot"
