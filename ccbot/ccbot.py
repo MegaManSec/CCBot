@@ -18,11 +18,11 @@ REFRESH_INTERVAL_SECONDS = 600
 
 last_modified_times = {}
 
-# If the message is greater than 2000 characters, replace the longest words (separated by spaces) with [....truncated....] until it fits.
+# Keep Slack fields within 2000 characters, with a marker for omitted content.
 def truncate_slack_message(message):
-    while len(message) > 2000:
-        longest_word = max(message.split(), key=len)
-        message = message.replace(longest_word, "[...truncated...]")
+    if len(message) > 2000:
+        marker = "[...truncated...]"
+        return message[:2000 - len(marker)] + marker
     return message
 
 # Send a formatted message to a slack webhook, if SLACK_WEBHOOK is configured.

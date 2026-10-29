@@ -101,5 +101,13 @@ ccbot has been installed, the service is started, and log rotation is set up.
 
 If you don't provide a URL, you can manually edit /etc/systemd/system/ccbot.service later to set or change the webhook URL.
 
+## Tests
+
+With the package installed, run the regression tests with:
+
+```bash
+python -m unittest discover -s tests
+```
+
 ## License
 This project is licensed under [AGPL-3.0](/LICENSE).
