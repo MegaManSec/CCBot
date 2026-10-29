@@ -9,12 +9,12 @@ from bs4 import BeautifulSoup
 import re
 import os
 import requests
-import json
 
 SLACK_BULLETPOINT = ' \u2022   '
 SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
 RSS_URL = [ "https://feeds.feedburner.com/GoogleChromeReleases" ] #, "https://www.blogger.com/feeds/8982037438137564684/posts/default" ] XXX: blogger.com feed seems dead
 REFRESH_INTERVAL_SECONDS = 600
+HTTP_TIMEOUT_SECONDS = 30
 
 last_modified_times = {}
 
@@ -31,8 +31,8 @@ def send_to_slack(message):
         print(message)
         return
 
-    headers = {'Content-type': 'application/json'}
-    request = requests.post(SLACK_WEBHOOK, headers=headers, data=json.dumps(message))
+    response = requests.post(SLACK_WEBHOOK, json=message, timeout=HTTP_TIMEOUT_SECONDS)
+    response.raise_for_status()
 
 # Retrieve the RSS feed
 def get_rss_entries(rss_url):
