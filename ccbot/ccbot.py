@@ -121,10 +121,13 @@ def extract_security_content(description):
 # Match CVEs posted in the post based on the rendered text of the post.
 # We first render the HTML's text itself, then match the CVEs, as this is likely more consistent than HTML.
 def extract_security_content_from_url(url):
-    response = requests.get(url)
+    response = requests.get(url, timeout=HTTP_TIMEOUT_SECONDS)
+    response.raise_for_status()
     response.encoding = 'utf-8'
     soup = BeautifulSoup(response.text, 'html.parser')
     cve_section = soup.find('div', {'class': 'post-body'})
+    if cve_section is None:
+        raise ValueError(f"Article has no post body: {url}")
     cve_text = cve_section.get_text()
     cve_pattern = r' {0,1}(Critical|High|Medium|Low) {0,1}(CVE-\d+-\d+): ([^.]*)\.'
     cve_matches = re.findall(cve_pattern, cve_text)
@@ -142,10 +145,15 @@ def process_rss_entry(entry):
 
     article_content = entry.get('summary', entry.get('description', ''))
     formatted_time = format_published_time(entry.published_parsed)
-    security_content = extract_security_content_from_url(url)
+    summary_security_content = extract_security_content(article_content)
+    try:
+        security_content = extract_security_content_from_url(url)
+    except (requests.RequestException, ValueError):
+        if not summary_security_content and not contains_security_keyword(article_content):
+            raise
+        security_content = None
 
-    if not security_content:
-        security_content = extract_security_content(article_content)
+    security_content = security_content or summary_security_content
 
     slack_message = f"*{formatted_time}*: URL: {url}\n"
     security_issues = ""

@@ -172,3 +172,47 @@ class PollingTests(unittest.TestCase):
         with patch.object(ccbot, "get_rss_entries", return_value=entries), patch("builtins.print"):
             result = ccbot.get_all_rss_entries(["https://example.test/feed"])
         self.assertEqual([entry.link for entry in result], ["https://example.test/healthy"])
+
+
+class ArticleTests(unittest.TestCase):
+    def test_article_requests_parse_cves_and_have_a_timeout(self):
+        html = '<div class="post-body">High CVE-2026-1234: Use after free in V8.</div>'
+        with patch.object(ccbot.requests, "get", return_value=make_response(body=html)) as get:
+            matches = ccbot.extract_security_content_from_url("https://example.test/release")
+        self.assertEqual(matches, [("High", "CVE-2026-1234", "Use after free in V8")])
+        self.assertGreater(get.call_args.kwargs["timeout"], 0)
+
+    def test_article_failures_use_cves_from_the_summary(self):
+        entry = feedparser.parse(make_feed("release")).entries[0]
+        entry["summary"] = '<span>High</span><span>CVE-2026-1234: Use after free in V8.</span>'
+        failures = [
+            make_response(503, "Service Unavailable"),
+            make_response(body="<html>No article body</html>"),
+            requests.Timeout("Timed out"),
+            requests.ConnectionError("Disconnected"),
+        ]
+        for failure in failures:
+            with self.subTest(failure=str(failure)), \
+                    patch.object(ccbot.requests, "get", side_effect=[failure]), \
+                    patch.object(ccbot, "send_to_slack") as send:
+                ccbot.process_rss_entry(entry)
+                self.assertEqual(send.call_count, 1)
+                value = send.call_args.args[0]["attachments"][0]["fields"][0]["value"]
+                self.assertIn("CVE-2026-1234", value)
+
+    def test_failure_without_useful_summary_is_left_for_retry(self):
+        entry = feedparser.parse(make_feed("release")).entries[0]
+        entry["summary"] = "A release update"
+        with patch.object(ccbot.requests, "get", return_value=make_response(503)), \
+                patch.object(ccbot, "send_to_slack") as send:
+            with self.assertRaises(requests.HTTPError):
+                ccbot.process_rss_entry(entry)
+        send.assert_not_called()
+
+    def test_security_summary_still_generates_a_manual_check_notification(self):
+        entry = feedparser.parse(make_feed("release")).entries[0]
+        with patch.object(ccbot.requests, "get", side_effect=requests.Timeout()), \
+                patch.object(ccbot, "send_to_slack") as send:
+            ccbot.process_rss_entry(entry)
+        value = send.call_args.args[0]["attachments"][0]["fields"][0]["value"]
+        self.assertIn("no CVEs detected", value)
