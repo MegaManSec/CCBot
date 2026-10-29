@@ -175,6 +175,20 @@ class PollingTests(unittest.TestCase):
 
 
 class ArticleTests(unittest.TestCase):
+    def test_mixed_html_whitespace_does_not_omit_cves(self):
+        html = (
+            '<div class="post-body">High CVE-2026-1111: Use after free in V8.<br>'
+            'Medium&nbsp;&nbsp;CVE-2026-2222:\n Type confusion in V8.</div>'
+        )
+        entry = feedparser.parse(make_feed("release")).entries[0]
+        with patch.object(ccbot.requests, "get", return_value=make_response(body=html)), \
+                patch.object(ccbot, "send_to_slack") as send:
+            ccbot.process_rss_entry(entry)
+        value = send.call_args.args[0]["attachments"][0]["fields"][0]["value"]
+        self.assertIn("CVE-2026-1111", value)
+        self.assertIn("CVE-2026-2222", value)
+        self.assertIn("Type confusion in V8", value)
+
     def test_article_requests_parse_cves_and_have_a_timeout(self):
         html = '<div class="post-body">High CVE-2026-1234: Use after free in V8.</div>'
         with patch.object(ccbot.requests, "get", return_value=make_response(body=html)) as get:

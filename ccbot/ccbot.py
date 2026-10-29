@@ -128,7 +128,7 @@ def extract_security_content_from_url(url):
     cve_section = soup.find('div', {'class': 'post-body'})
     if cve_section is None:
         raise ValueError(f"Article has no post body: {url}")
-    cve_text = cve_section.get_text()
+    cve_text = " ".join(cve_section.get_text().split())
     cve_pattern = r' {0,1}(Critical|High|Medium|Low) {0,1}(CVE-\d+-\d+): ([^.]*)\.'
     cve_matches = re.findall(cve_pattern, cve_text)
     return cve_matches
