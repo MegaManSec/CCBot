@@ -100,7 +100,8 @@ ccbot has been installed, the service is started, and log rotation is set up.
 ```
 
 If you don't provide a URL, you can manually edit /etc/systemd/system/ccbot.service later to set or change the webhook URL.
-When reinstalling, the existing webhook is preserved unless you provide a new argument or set `SLACK_WEBHOOK_URL` in the installer's environment.
+When reinstalling without an argument, the installer keeps the webhook the existing service uses, and exits with an error if it has none; pass `""` to run without a webhook and only log alerts.
+To change the webhook, pass the new URL as the argument: `sudo` resets the environment, so an exported `SLACK_WEBHOOK_URL` does not reach the installer.
 The installer restarts the service to apply updated code and configuration.
 
 ## Tests
