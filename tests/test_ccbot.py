@@ -231,16 +231,19 @@ class ArticleTests(unittest.TestCase):
 
     def test_failure_without_useful_summary_is_left_for_retry(self):
         entry = feedparser.parse(make_feed("release")).entries[0]
-        entry["summary"] = "A release update"
-        with patch.object(ccbot.requests, "get", return_value=make_response(503)), \
-                patch.object(ccbot, "send_to_slack") as send:
-            with self.assertRaises(requests.HTTPError):
-                ccbot.process_rss_entry(entry)
-        send.assert_not_called()
+        for summary in ("A release update", "security update"):
+            entry["summary"] = summary
+            with self.subTest(summary=summary), \
+                    patch.object(ccbot.requests, "get", return_value=make_response(503)), \
+                    patch.object(ccbot, "send_to_slack") as send:
+                with self.assertRaises(requests.HTTPError):
+                    ccbot.process_rss_entry(entry)
+                send.assert_not_called()
 
     def test_security_summary_still_generates_a_manual_check_notification(self):
         entry = feedparser.parse(make_feed("release")).entries[0]
-        with patch.object(ccbot.requests, "get", side_effect=requests.Timeout()), \
+        html = '<div class="post-body">Security fixes are listed in the release notes.</div>'
+        with patch.object(ccbot.requests, "get", return_value=make_response(body=html)), \
                 patch.object(ccbot, "send_to_slack") as send:
             ccbot.process_rss_entry(entry)
         value = send.call_args.args[0]["attachments"][0]["fields"][0]["value"]

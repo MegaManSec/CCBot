@@ -158,7 +158,7 @@ def process_rss_entry(entry):
     try:
         security_content = extract_security_content_from_url(url)
     except (requests.RequestException, ValueError):
-        if not summary_security_content and not contains_security_keyword(article_content):
+        if not summary_security_content:
             raise
         security_content = None
 
