@@ -62,10 +62,11 @@ def get_rss_entries(rss_url):
     if not feed.version or truncated:
         raise ValueError(f"Invalid RSS feed: {rss_url}")
 
-    cached_feeds[rss_url] = {
-        "modified": response.headers.get("Last-Modified"),
-        "entries": feed.entries,
-    }
+    if feed.entries:
+        cached_feeds[rss_url] = {
+            "modified": response.headers.get("Last-Modified"),
+            "entries": feed.entries,
+        }
     return feed.entries
 
 # Ensure that the URL is formatted with "https://"
@@ -212,6 +213,8 @@ def main():
     while True:
         try:
             feed_entries = get_all_rss_entries(RSS_URL)
+            if not feed_entries:
+                raise ValueError("No feed entries to establish a baseline")
             for entry in feed_entries:
                 url = normalize_url(entry.link)
                 seen_urls.append(url)

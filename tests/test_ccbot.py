@@ -136,8 +136,8 @@ class FeedTests(unittest.TestCase):
 
     def test_failed_delivery_retries_on_304_without_duplicate_successes(self):
         feeds = [
-            make_response(body=make_feed()),
-            make_response(body=make_feed("release")),
+            make_response(body=make_feed("historical")),
+            make_response(body=make_feed("release", "historical")),
             make_response(304),
             make_response(304),
         ]
@@ -165,12 +165,28 @@ class FeedTests(unittest.TestCase):
                 ccbot.main()
         process.assert_not_called()
 
+    def test_startup_retries_empty_feed_before_establishing_baseline(self):
+        feeds = [
+            make_response(body=make_feed(), headers={"Last-Modified": "Tue, 02 Jan 2024 00:00:00 GMT"}),
+            make_response(body=make_feed("historical")),
+            make_response(304),
+        ]
+        with patch.object(ccbot.requests, "get", side_effect=feeds) as get, \
+                patch.object(ccbot, "process_rss_entry") as process, \
+                patch.object(ccbot.time, "sleep", side_effect=[None, StopPolling()]), \
+                patch("builtins.print"):
+            with self.assertRaises(StopPolling):
+                ccbot.main()
+        process.assert_not_called()
+        self.assertNotIn("If-Modified-Since", get.call_args_list[1].kwargs["headers"])
+
 
 class PollingTests(unittest.TestCase):
     def test_bad_entry_does_not_block_or_duplicate_healthy_notifications(self):
+        historical = feedparser.parse(make_feed("historical")).entries
         entries = feedparser.parse(make_feed("healthy", "bad")).entries
         del entries[1]["published_parsed"]
-        with patch.object(ccbot, "get_all_rss_entries", side_effect=[[], entries[:], entries[:]]), \
+        with patch.object(ccbot, "get_all_rss_entries", side_effect=[historical, entries[:], entries[:]]), \
                 patch.object(ccbot, "extract_security_content_from_url", return_value=[("High", "CVE-2026-1234", "Use after free")]), \
                 patch.object(ccbot, "send_to_slack") as send, \
                 patch.object(ccbot.time, "sleep", side_effect=[None, StopPolling()]), \
