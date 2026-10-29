@@ -9,12 +9,19 @@ from bs4 import BeautifulSoup
 import re
 import os
 import requests
+from xml.parsers.expat import errors as expat_errors
+from xml.sax import SAXParseException
 
 SLACK_BULLETPOINT = ' \u2022   '
 SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
 RSS_URL = [ "https://feeds.feedburner.com/GoogleChromeReleases" ] #, "https://www.blogger.com/feeds/8982037438137564684/posts/default" ] XXX: blogger.com feed seems dead
 REFRESH_INTERVAL_SECONDS = 600
 HTTP_TIMEOUT_SECONDS = 30
+TRUNCATED_FEED_ERRORS = {
+    expat_errors.XML_ERROR_NO_ELEMENTS,
+    expat_errors.XML_ERROR_UNCLOSED_TOKEN,
+    expat_errors.XML_ERROR_UNCLOSED_CDATA_SECTION,
+}
 
 cached_feeds = {}
 
@@ -50,7 +57,9 @@ def get_rss_entries(rss_url):
     response.raise_for_status()
 
     feed = feedparser.parse(response.content)
-    if not feed.version or feed.bozo:
+    error = feed.get("bozo_exception")
+    truncated = isinstance(error, SAXParseException) and error.getMessage() in TRUNCATED_FEED_ERRORS
+    if not feed.version or truncated:
         raise ValueError(f"Invalid RSS feed: {rss_url}")
 
     cached_feeds[rss_url] = {

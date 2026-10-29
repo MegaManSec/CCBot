@@ -94,6 +94,7 @@ class FeedTests(unittest.TestCase):
             make_response(503, "Service Unavailable"),
             make_response(body="<html>Not a feed</html>"),
             make_response(body=make_feed("release")[:-10]),
+            make_response(body=make_feed("release")[:-len("</rss>")]),
             make_response(304),
         ]
         for response in responses:
@@ -114,6 +115,20 @@ class FeedTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 ccbot.get_rss_entries("https://example.test/feed")
             self.assertEqual(ccbot.get_rss_entries("https://example.test/feed"), original)
+
+    def test_recoverable_feed_errors_keep_all_entries(self):
+        feed = make_feed("release")
+        bodies = {
+            "bare ampersand": feed.replace("security update", "security & stability update"),
+            "control character": feed.replace("security update", "security\x0b update"),
+            "undefined entity": feed.replace("security update", "security&nbsp;update"),
+            "encoding override": '<?xml version="1.0" encoding="us-ascii"?>' + feed.replace("security update", "security update —"),
+        }
+        for error, body in bodies.items():
+            with self.subTest(error=error), \
+                    patch.object(ccbot.requests, "get", return_value=make_response(body=body)):
+                entries = ccbot.get_rss_entries("https://example.test/feed")
+                self.assertEqual([entry.link for entry in entries], ["https://example.test/release"])
 
     def test_empty_valid_feeds_are_accepted(self):
         with patch.object(ccbot.requests, "get", return_value=make_response(body=make_feed())):
