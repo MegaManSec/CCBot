@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import requests
+import feedparser
 
 from ccbot import ccbot
 
@@ -148,3 +149,26 @@ class FeedTests(unittest.TestCase):
             with self.assertRaises(StopPolling):
                 ccbot.main()
         process.assert_not_called()
+
+
+class PollingTests(unittest.TestCase):
+    def test_bad_entry_does_not_block_or_duplicate_healthy_notifications(self):
+        entries = feedparser.parse(make_feed("healthy", "bad")).entries
+        del entries[1]["published_parsed"]
+        with patch.object(ccbot, "get_all_rss_entries", side_effect=[[], entries[:], entries[:]]), \
+                patch.object(ccbot, "extract_security_content_from_url", return_value=[("High", "CVE-2026-1234", "Use after free")]), \
+                patch.object(ccbot, "send_to_slack") as send, \
+                patch.object(ccbot.time, "sleep", side_effect=[None, StopPolling()]), \
+                patch("builtins.print") as log:
+            with self.assertRaises(StopPolling):
+                ccbot.main()
+        self.assertEqual(send.call_count, 1)
+        self.assertIn("https://example.test/healthy", send.call_args.args[0]["attachments"][0]["pretext"])
+        self.assertEqual(log.call_count, 2)
+
+    def test_entries_without_links_do_not_block_feed_aggregation(self):
+        entries = feedparser.parse(make_feed("bad", "healthy")).entries
+        del entries[0]["link"]
+        with patch.object(ccbot, "get_rss_entries", return_value=entries), patch("builtins.print"):
+            result = ccbot.get_all_rss_entries(["https://example.test/feed"])
+        self.assertEqual([entry.link for entry in result], ["https://example.test/healthy"])

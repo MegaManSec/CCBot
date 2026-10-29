@@ -69,10 +69,14 @@ def get_all_rss_entries(rss_urls):
     seen_urls = set()
 
     for rss_url in rss_urls:
-        entries = get_rss_entries(rss_url)
-        entries = [entry for entry in entries if normalize_url(entry.link) not in seen_urls]
-        all_entries.extend(entries)
-        seen_urls.update(normalize_url(entry.link) for entry in entries)
+        for entry in get_rss_entries(rss_url):
+            if not entry.get('link'):
+                print(f"Skipping an entry without a link in {rss_url}")
+                continue
+            url = normalize_url(entry.link)
+            if url not in seen_urls:
+                all_entries.append(entry)
+                seen_urls.add(url)
 
     return all_entries
 
@@ -212,7 +216,11 @@ def main():
                 if url in seen_urls:
                     continue
 
-                process_rss_entry(entry)
+                try:
+                    process_rss_entry(entry)
+                except Exception as e:
+                    print(f"An error occurred processing {url}, retrying: {e}")
+                    continue
                 seen_urls.append(url)
 
             time.sleep(REFRESH_INTERVAL_SECONDS)
