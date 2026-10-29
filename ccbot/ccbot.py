@@ -183,6 +183,7 @@ def process_rss_entry(entry):
                 "fallback": f"{slack_message}{security_issues}",
                 "pretext": f"{slack_message}",
                 "color": "#D00000",
+                "mrkdwn_in": ["pretext", "fields"],
                 "fields": [
                     {
                         "title": "Security Issues",
