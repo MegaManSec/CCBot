@@ -10,11 +10,13 @@ fi
 "$VENV_PATH/bin/pip" install --upgrade pip
 "$VENV_PATH/bin/pip" install .
 
+SERVICE_FILE="/etc/systemd/system/ccbot.service"
+
 if [ "$#" -eq 1 ]; then
     SLACK_WEBHOOK_URL="$1"
+elif [ -z "${SLACK_WEBHOOK_URL+x}" ] && [ -f "$SERVICE_FILE" ]; then
+    SLACK_WEBHOOK_URL=$(sed -n 's/^Environment=SLACK_WEBHOOK_URL=//p' "$SERVICE_FILE")
 fi
-
-SERVICE_FILE="/etc/systemd/system/ccbot.service"
 
 cat <<EOL > "$SERVICE_FILE"
 [Unit]
