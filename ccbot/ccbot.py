@@ -98,7 +98,7 @@ def contains_specified_tags(tags):
             continue
         if term['term'] in ('Extended Stable updates', 'Stable updates'):
             GOT_STABLE = True
-        if term['term'] in ('Desktop Update'):
+        if term['term'] == 'Desktop Update':
             GOT_DESKTOP = True
 
     return GOT_STABLE and GOT_DESKTOP
