@@ -16,7 +16,7 @@ RSS_URL = [ "https://feeds.feedburner.com/GoogleChromeReleases" ] #, "https://ww
 REFRESH_INTERVAL_SECONDS = 600
 HTTP_TIMEOUT_SECONDS = 30
 
-last_modified_times = {}
+cached_feeds = {}
 
 # Keep Slack fields within 2000 characters, with a marker for omitted content.
 def truncate_slack_message(message):
@@ -36,13 +36,27 @@ def send_to_slack(message):
 
 # Retrieve the RSS feed
 def get_rss_entries(rss_url):
-    last_modified_time = last_modified_times.get(rss_url)
+    cached_feed = cached_feeds.get(rss_url)
+    headers = {"Cache-Control": "max-age=0"}
+    if cached_feed and cached_feed["modified"]:
+        headers["If-Modified-Since"] = cached_feed["modified"]
 
-    feed = feedparser.parse(rss_url, modified=last_modified_time, request_headers={"Cache-Control": "max-age=0"})
+    response = requests.get(rss_url, headers=headers, timeout=HTTP_TIMEOUT_SECONDS)
+    if response.status_code == 304:
+        if cached_feed is None:
+            raise ValueError(f"Received 304 without a cached feed: {rss_url}")
+        # Replay entries so failed notifications can be retried even if the feed is unchanged.
+        return cached_feed["entries"]
+    response.raise_for_status()
 
-    if hasattr(feed, 'modified'):
-        last_modified_times[rss_url] = feed.modified
+    feed = feedparser.parse(response.content)
+    if not feed.version or feed.bozo:
+        raise ValueError(f"Invalid RSS feed: {rss_url}")
 
+    cached_feeds[rss_url] = {
+        "modified": response.headers.get("Last-Modified"),
+        "entries": feed.entries,
+    }
     return feed.entries
 
 # Ensure that the URL is formatted with "https://"

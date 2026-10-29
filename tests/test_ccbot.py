@@ -14,6 +14,25 @@ def make_response(status=200, body="", headers=None):
     return response
 
 
+def make_feed(*names):
+    items = "".join(
+        f"<item><title>Stable Channel Update for Desktop</title>"
+        f"<link>https://example.test/{name}</link>"
+        "<pubDate>Tue, 02 Jan 2024 00:00:00 GMT</pubDate>"
+        "<description>security update</description></item>"
+        for name in names
+    )
+    return (
+        '<rss version="2.0"><channel><title>Chrome</title>'
+        '<link>https://example.test/</link><description>Releases</description>'
+        f'{items}</channel></rss>'
+    )
+
+
+class StopPolling(BaseException):
+    pass
+
+
 class SlackMessageTests(unittest.TestCase):
     def test_short_messages_are_unchanged(self):
         for message in ("", "A short alert", "x" * 2000):
@@ -47,3 +66,85 @@ class SlackDeliveryTests(unittest.TestCase):
             ccbot.send_to_slack(message)
         self.assertEqual(post.call_args.kwargs["json"], message)
         self.assertGreater(post.call_args.kwargs["timeout"], 0)
+
+
+class FeedTests(unittest.TestCase):
+    def setUp(self):
+        cache = patch.dict(ccbot.cached_feeds, clear=True)
+        cache.start()
+        self.addCleanup(cache.stop)
+
+    def test_unchanged_feed_replays_cached_entries(self):
+        modified = "Tue, 02 Jan 2024 00:00:00 GMT"
+        responses = [
+            make_response(body=make_feed("release"), headers={"Last-Modified": modified}),
+            make_response(304),
+        ]
+        with patch.object(ccbot.requests, "get", side_effect=responses) as get:
+            original = ccbot.get_rss_entries("https://example.test/feed")
+            replayed = ccbot.get_rss_entries("https://example.test/feed")
+        self.assertEqual([entry.link for entry in replayed], ["https://example.test/release"])
+        self.assertEqual(original, replayed)
+        self.assertEqual(get.call_args.kwargs["headers"]["If-Modified-Since"], modified)
+        self.assertGreater(get.call_args.kwargs["timeout"], 0)
+
+    def test_invalid_feeds_cannot_initialize_the_cache(self):
+        responses = [
+            make_response(503, "Service Unavailable"),
+            make_response(body="<html>Not a feed</html>"),
+            make_response(body=make_feed("release")[:-10]),
+            make_response(304),
+        ]
+        for response in responses:
+            with self.subTest(status=response.status_code, body=response.text[:30]), \
+                    patch.object(ccbot.requests, "get", return_value=response):
+                with self.assertRaises((requests.HTTPError, ValueError)):
+                    ccbot.get_rss_entries("https://example.test/feed")
+                self.assertEqual(ccbot.cached_feeds, {})
+
+    def test_invalid_refresh_keeps_the_last_valid_feed(self):
+        responses = [
+            make_response(body=make_feed("release")),
+            make_response(body="<html>Error</html>"),
+            make_response(304),
+        ]
+        with patch.object(ccbot.requests, "get", side_effect=responses):
+            original = ccbot.get_rss_entries("https://example.test/feed")
+            with self.assertRaises(ValueError):
+                ccbot.get_rss_entries("https://example.test/feed")
+            self.assertEqual(ccbot.get_rss_entries("https://example.test/feed"), original)
+
+    def test_empty_valid_feeds_are_accepted(self):
+        with patch.object(ccbot.requests, "get", return_value=make_response(body=make_feed())):
+            self.assertEqual(ccbot.get_rss_entries("https://example.test/feed"), [])
+
+    def test_failed_delivery_retries_on_304_without_duplicate_successes(self):
+        feeds = [
+            make_response(body=make_feed()),
+            make_response(body=make_feed("release")),
+            make_response(304),
+            make_response(304),
+        ]
+        with patch.object(ccbot.requests, "get", side_effect=feeds), \
+                patch.object(ccbot.requests, "post", side_effect=[make_response(500), make_response()]) as post, \
+                patch.object(ccbot, "SLACK_WEBHOOK", "https://example.test/webhook"), \
+                patch.object(ccbot, "extract_security_content_from_url", return_value=[("High", "CVE-2026-1234", "Use after free")]), \
+                patch.object(ccbot.time, "sleep", side_effect=[None, None, StopPolling()]), \
+                patch("builtins.print"):
+            with self.assertRaises(StopPolling):
+                ccbot.main()
+        self.assertEqual(post.call_count, 2)
+
+    def test_startup_retries_failed_feed_before_establishing_baseline(self):
+        feeds = [
+            make_response(503),
+            make_response(body=make_feed("historical")),
+            make_response(304),
+        ]
+        with patch.object(ccbot.requests, "get", side_effect=feeds), \
+                patch.object(ccbot, "process_rss_entry") as process, \
+                patch.object(ccbot.time, "sleep", side_effect=[None, StopPolling()]), \
+                patch("builtins.print"):
+            with self.assertRaises(StopPolling):
+                ccbot.main()
+        process.assert_not_called()
