@@ -84,7 +84,7 @@ You can run the script in your terminal with the following instructions.
 
 ## Systemd Installation
 
-A Debian-based installation script, [install.sh](install.sh), is provided. When run as root, this script:
+A Debian-based installation script, [install.sh](https://github.com/MegaManSec/CCBot/blob/main/install.sh), is provided. When run as root, this script:
 
 1. Creates (if necessary) a Python virtual environment in `/opt/ccbot`.
 2. Installs the package into that virtual environment.
@@ -113,4 +113,4 @@ python -m unittest discover -s tests
 ```
 
 ## License
-This project is licensed under [AGPL-3.0](/LICENSE).
+This project is licensed under [AGPL-3.0](https://github.com/MegaManSec/CCBot/blob/main/LICENSE).
