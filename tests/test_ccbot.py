@@ -95,6 +95,7 @@ class FeedTests(unittest.TestCase):
             make_response(body="<html>Not a feed</html>"),
             make_response(body=make_feed("release")[:-10]),
             make_response(body=make_feed("release")[:-len("</rss>")]),
+            make_response(body=make_feed("release", "older").replace("security update", "security & update", 1)[:-30]),
             make_response(304),
         ]
         for response in responses:
