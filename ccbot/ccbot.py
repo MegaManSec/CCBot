@@ -9,20 +9,21 @@ from bs4 import BeautifulSoup
 import re
 import os
 import requests
-import json
 
 SLACK_BULLETPOINT = ' \u2022   '
 SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
 RSS_URL = [ "https://feeds.feedburner.com/GoogleChromeReleases" ] #, "https://www.blogger.com/feeds/8982037438137564684/posts/default" ] XXX: blogger.com feed seems dead
 REFRESH_INTERVAL_SECONDS = 600
+HTTP_TIMEOUT_SECONDS = 30
+FEED_END = re.compile(rb"</(feed|rss|rdf:RDF)>\s*\Z")
 
-last_modified_times = {}
+cached_feeds = {}
 
-# If the message is greater than 2000 characters, replace the longest words (separated by spaces) with [....truncated....] until it fits.
+# Keep Slack fields within 2000 characters, with a marker for omitted content.
 def truncate_slack_message(message):
-    while len(message) > 2000:
-        longest_word = max(message.split(), key=len)
-        message = message.replace(longest_word, "[...truncated...]")
+    if len(message) > 2000:
+        marker = "[...truncated...]"
+        return message[:2000 - len(marker)] + marker
     return message
 
 # Send a formatted message to a slack webhook, if SLACK_WEBHOOK is configured.
@@ -31,18 +32,33 @@ def send_to_slack(message):
         print(message)
         return
 
-    headers = {'Content-type': 'application/json'}
-    request = requests.post(SLACK_WEBHOOK, headers=headers, data=json.dumps(message))
+    response = requests.post(SLACK_WEBHOOK, json=message, timeout=HTTP_TIMEOUT_SECONDS)
+    response.raise_for_status()
 
 # Retrieve the RSS feed
 def get_rss_entries(rss_url):
-    last_modified_time = last_modified_times.get(rss_url)
+    cached_feed = cached_feeds.get(rss_url)
+    headers = {"Cache-Control": "max-age=0"}
+    if cached_feed and cached_feed["modified"]:
+        headers["If-Modified-Since"] = cached_feed["modified"]
 
-    feed = feedparser.parse(rss_url, modified=last_modified_time, request_headers={"Cache-Control": "max-age=0"})
+    response = requests.get(rss_url, headers=headers, timeout=HTTP_TIMEOUT_SECONDS)
+    if response.status_code == 304:
+        if cached_feed is None:
+            raise ValueError(f"Received 304 without a cached feed: {rss_url}")
+        # Replay entries so failed notifications can be retried even if the feed is unchanged.
+        return cached_feed["entries"]
+    response.raise_for_status()
 
-    if hasattr(feed, 'modified'):
-        last_modified_times[rss_url] = feed.modified
+    feed = feedparser.parse(response.content)
+    if not feed.version or not FEED_END.search(response.content):
+        raise ValueError(f"Invalid RSS feed: {rss_url}")
 
+    if feed.entries:
+        cached_feeds[rss_url] = {
+            "modified": response.headers.get("Last-Modified"),
+            "entries": feed.entries,
+        }
     return feed.entries
 
 # Ensure that the URL is formatted with "https://"
@@ -55,10 +71,14 @@ def get_all_rss_entries(rss_urls):
     seen_urls = set()
 
     for rss_url in rss_urls:
-        entries = get_rss_entries(rss_url)
-        entries = [entry for entry in entries if normalize_url(entry.link) not in seen_urls]
-        all_entries.extend(entries)
-        seen_urls.update(normalize_url(entry.link) for entry in entries)
+        for entry in get_rss_entries(rss_url):
+            if not entry.get('link'):
+                print(f"Skipping an entry without a link in {rss_url}")
+                continue
+            url = normalize_url(entry.link)
+            if url not in seen_urls:
+                all_entries.append(entry)
+                seen_urls.add(url)
 
     return all_entries
 
@@ -80,7 +100,7 @@ def contains_specified_tags(tags):
             continue
         if term['term'] in ('Extended Stable updates', 'Stable updates'):
             GOT_STABLE = True
-        if term['term'] in ('Desktop Update'):
+        if term['term'] == 'Desktop Update':
             GOT_DESKTOP = True
 
     return GOT_STABLE and GOT_DESKTOP
@@ -103,11 +123,14 @@ def extract_security_content(description):
 # Match CVEs posted in the post based on the rendered text of the post.
 # We first render the HTML's text itself, then match the CVEs, as this is likely more consistent than HTML.
 def extract_security_content_from_url(url):
-    response = requests.get(url)
+    response = requests.get(url, timeout=HTTP_TIMEOUT_SECONDS)
+    response.raise_for_status()
     response.encoding = 'utf-8'
     soup = BeautifulSoup(response.text, 'html.parser')
     cve_section = soup.find('div', {'class': 'post-body'})
-    cve_text = cve_section.get_text()
+    if cve_section is None:
+        raise ValueError(f"Article has no post body: {url}")
+    cve_text = " ".join(cve_section.get_text().split())
     cve_pattern = r' {0,1}(Critical|High|Medium|Low) {0,1}(CVE-\d+-\d+): ([^.]*)\.'
     cve_matches = re.findall(cve_pattern, cve_text)
     return cve_matches
@@ -124,10 +147,15 @@ def process_rss_entry(entry):
 
     article_content = entry.get('summary', entry.get('description', ''))
     formatted_time = format_published_time(entry.published_parsed)
-    security_content = extract_security_content_from_url(url)
+    summary_security_content = extract_security_content(article_content)
+    try:
+        security_content = extract_security_content_from_url(url)
+    except (requests.RequestException, ValueError):
+        if not summary_security_content:
+            raise
+        security_content = None
 
-    if not security_content:
-        security_content = extract_security_content(article_content)
+    security_content = security_content or summary_security_content
 
     slack_message = f"*{formatted_time}*: URL: {url}\n"
     security_issues = ""
@@ -157,6 +185,7 @@ def process_rss_entry(entry):
                 "fallback": f"{slack_message}{security_issues}",
                 "pretext": f"{slack_message}",
                 "color": "#D00000",
+                "mrkdwn_in": ["pretext", "fields"],
                 "fields": [
                     {
                         "title": "Security Issues",
@@ -176,6 +205,8 @@ def main():
     while True:
         try:
             feed_entries = get_all_rss_entries(RSS_URL)
+            if not feed_entries:
+                raise ValueError("No feed entries to establish a baseline")
             for entry in feed_entries:
                 url = normalize_url(entry.link)
                 seen_urls.append(url)
@@ -198,7 +229,11 @@ def main():
                 if url in seen_urls:
                     continue
 
-                process_rss_entry(entry)
+                try:
+                    process_rss_entry(entry)
+                except Exception as e:
+                    print(f"An error occurred processing {url}, retrying: {e}")
+                    continue
                 seen_urls.append(url)
 
             time.sleep(REFRESH_INTERVAL_SECONDS)
