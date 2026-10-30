@@ -1,7 +1,7 @@
 # Chrome Checker Bot
 
-Chrome Checker Bot (CCBot), also known as Chrome/Chromium Vulnerability Checker. This Python script monitors the Google Chrome release page for any announced vulnerabilities in Chrome/Chromium.
-It utilizes the Google Chrome Releases RSS feed to fetch the latest updates and checks for security-related content. If security issues are detected, it sends a formatted message to a specified Slack channel using a webhook.
+Chrome Checker Bot (CCBot), also known as the Chrome/Chromium Vulnerability Checker, is a Python script that monitors the [Chrome Releases blog](https://chromereleases.googleblog.com/) for vulnerabilities announced in Chrome/Chromium.
+It polls the blog's Atom feed for Stable desktop releases and checks them for security fixes. If it finds any, it sends a formatted message to Slack through an incoming webhook.
 
 This software was written by [Joshua Rogers](https://joshua.hu/). For more information, see [the blog post](https://joshua.hu/ccbot-chrome-checker-bot-googlechromereleases-chromium-updates).
 
@@ -31,32 +31,35 @@ ccbot
 ```
 
 ## Configuration
-Before running the script, ensure you set up the following configurations:
+CCBot reads one setting from the environment:
 
-- `SLACK_WEBHOOK_URL`: Set your Slack webhook URL as an environment variable.
-- `RSS_URL`: Google Chrome Releases feed URL. CCBot reads Blogger's own Atom feed with `redirect=false`, because the FeedBurner copy it otherwise redirects to is served stale.
-- `REFRESH_INTERVAL_SECONDS`: Time interval for checking updates in seconds.
+- `SLACK_WEBHOOK_URL`: Your Slack incoming webhook URL, read at startup. If it is unset or empty, CCBot prints each alert to standard output instead of sending it.
+
+The feed URL (`RSS_URL`) and the 10-minute refresh interval (`REFRESH_INTERVAL_SECONDS`) are fixed in `ccbot/ccbot.py`. CCBot reads Blogger's own Atom feed with `redirect=false`, because the FeedBurner copy it otherwise redirects to is served stale.
 
 ## Functionality
 
 The script performs the following tasks:
 
-1. Fetches the latest entries from the Google Chrome Releases RSS feed.
-2. Filters entries based on specified tags (`Desktop Update`, `Stable updates`).
-3. Extracts security-related content from the entry's description or the linked URL.
-4. Formats and sends a Slack message if security issues are detected.
+1. Fetches the latest entries from the Chrome Releases Atom feed.
+2. Keeps only Stable desktop release posts: entries titled "Stable Channel Update for Desktop", or tagged `Desktop Update` together with `Stable updates` or `Extended Stable updates`.
+3. Fetches each new post and extracts its CVEs from the post's text. If the post can't be fetched or lists no CVEs, it falls back to the post's HTML in the feed.
+4. Sends a Slack message if CVEs are found, or if the post mentions "security" but no CVEs could be extracted.
 
 ## Slack Message Format
-The Slack message includes the following information for each security issue:
+For each release, CCBot sends a Slack attachment with a red bar:
 
-- **Timestamp**: Time of the release.
-- **URL**: Link to the release details.
-- **Security Issues**: List of security issues, including severity, CVE number, and description.
+- **Timestamp**: When the post was published, in UTC, as `[DD/MM/YY HH:MM:SS]`.
+- **URL**: Link to the release post.
+- **Security Issues**: One line per CVE, with its severity, CVE ID and description.
+
+Each message holds up to 2,000 characters of Security Issues. A longer list is split across several messages, numbered "Security Issues (1/2)", "Security Issues (2/2)" and so on, each with the timestamp and URL. A CVE is never split between messages.
 
 ## Notes
-- The script runs indefinitely, periodically checking for updates based on the refresh interval.
-- If a security-related article is found without specific CVEs, it still notifies Slack for manual verification.
-- The script employs regex patterns for extracting security content, adapting to potential variations in the HTML structure.
+- The script runs until stopped, checking the feed every 10 minutes. A post that fails, for example because it can't be fetched and the feed lists no CVEs for it, or because Slack rejects a message, is retried at the next check, without resending the messages already delivered.
+- At startup, CCBot records the posts already in the feed and doesn't alert on them, so the first message arrives with the next Stable desktop release. This record is kept in memory only: after a restart, posts published while CCBot was stopped, and posts waiting to be retried, are never alerted.
+- If a post contains the word "security" but no CVEs could be extracted, CCBot still notifies Slack for manual verification, with `Article contained the word 'security' but no CVEs detected. Someone should double-check..`
+- CVEs are matched with regular expressions, first against the rendered text of the post, then against the post's HTML in the feed. If Google changes the post format, CVEs may stop being detected; the manual-verification message is the fallback.
 
 ## Manual Usage
 
