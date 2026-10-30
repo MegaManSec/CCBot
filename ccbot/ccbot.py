@@ -17,25 +17,54 @@ SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
 RSS_URL = [ "https://www.blogger.com/feeds/8982037438137564684/posts/default?redirect=false" ]
 REFRESH_INTERVAL_SECONDS = 600
 HTTP_TIMEOUT_SECONDS = 30
+SLACK_FIELD_LIMIT = 2000
+SLACK_POST_INTERVAL_SECONDS = 1
 FEED_END = re.compile(rb"</(feed|rss|rdf:RDF)>\s*\Z")
 
 cached_feeds = {}
+pending_messages = {}
+last_webhook_post = float("-inf")
 
-# Keep Slack fields within 2000 characters, with a marker for omitted content.
+# Keep Slack fields within SLACK_FIELD_LIMIT characters, with a marker for omitted content.
 def truncate_slack_message(message):
-    if len(message) > 2000:
+    if len(message) > SLACK_FIELD_LIMIT:
         marker = "[...truncated...]"
-        return message[:2000 - len(marker)] + marker
+        return message[:SLACK_FIELD_LIMIT - len(marker)] + marker
     return message
+
+# Group whole issues into Slack fields of at most SLACK_FIELD_LIMIT characters each.
+def split_slack_message(issues):
+    parts = [""]
+    for issue in issues:
+        issue = truncate_slack_message(issue)
+        if parts[-1] and len(parts[-1]) + len(issue) > SLACK_FIELD_LIMIT:
+            parts.append("")
+        parts[-1] += issue
+    return parts
 
 # Send a formatted message to a slack webhook, if SLACK_WEBHOOK is configured.
 def send_to_slack(message):
+    global last_webhook_post
     if SLACK_WEBHOOK is None or len(SLACK_WEBHOOK) == 0:
         print(message)
         return
 
+    # Slack incoming webhooks accept about one message per second.
+    delay = last_webhook_post + SLACK_POST_INTERVAL_SECONDS - time.monotonic()
+    if delay > 0:
+        time.sleep(delay)
+
     response = requests.post(SLACK_WEBHOOK, json=message, timeout=HTTP_TIMEOUT_SECONDS)
+    last_webhook_post = time.monotonic()
     response.raise_for_status()
+
+# Send a post's pending Slack messages in order, keeping the unsent ones if one fails.
+def send_pending_messages(url):
+    messages = pending_messages[url]
+    while messages:
+        send_to_slack(messages[0])
+        messages.pop(0)
+    del pending_messages[url]
 
 # Retrieve the RSS feed
 def get_rss_entries(rss_url):
@@ -147,6 +176,10 @@ def process_rss_entry(entry):
         if not contains_specified_tags(entry.tags):
             return
 
+    if url in pending_messages:
+        send_pending_messages(url)
+        return
+
     article_content = entry.get('summary', entry.get('description', ''))
     formatted_time = format_published_time(entry.published_parsed)
     summary_security_content = extract_security_content(article_content)
@@ -160,46 +193,50 @@ def process_rss_entry(entry):
     security_content = security_content or summary_security_content
 
     slack_message = f"*{formatted_time}*: URL: {url}\n"
-    security_issues = ""
+    security_issues = []
 
     if security_content:
         for cve in security_content:
             if len(cve) == 3:
-                security_issues += f"{SLACK_BULLETPOINT}*[{cve[0]}]*: {cve[1]}: {cve[2]}\n"
+                security_issues.append(f"{SLACK_BULLETPOINT}*[{cve[0]}]*: {cve[1]}: {cve[2]}\n")
             elif len(cve) == 2:
-                security_issues += f"{SLACK_BULLETPOINT}*[{cve[0]}]*: {cve[1]}\n"
+                security_issues.append(f"{SLACK_BULLETPOINT}*[{cve[0]}]*: {cve[1]}\n")
             else:
-                security_issues += f"{SLACK_BULLETPOINT}Something went really wrong and the length of the regex is {len(cve)}! Check the logs..\n"
+                security_issues.append(f"{SLACK_BULLETPOINT}Something went really wrong and the length of the regex is {len(cve)}! Check the logs..\n")
                 print(f"Something went wrong. CVE: {cve}")
 
     elif contains_security_keyword(article_content):
-        security_issues += f"{SLACK_BULLETPOINT}Article contained the word 'security' but no CVEs detected. Someone should double-check..\n"
+        security_issues.append(f"{SLACK_BULLETPOINT}Article contained the word 'security' but no CVEs detected. Someone should double-check..\n")
 
     if len(security_issues) == 0:
       return
 
     slack_message = truncate_slack_message(slack_message)
-    security_issues = truncate_slack_message(security_issues)
+    parts = split_slack_message(security_issues)
+    messages = []
 
-    data = {
-        "attachments": [
-            {
-                "fallback": f"{slack_message}{security_issues}",
-                "pretext": f"{slack_message}",
-                "color": "#D00000",
-                "mrkdwn_in": ["pretext", "fields"],
-                "fields": [
-                    {
-                        "title": "Security Issues",
-                        "value": f"{security_issues}",
-                        "short": False
-                    }
-                ]
-            }
-        ]
-    }
+    for number, part in enumerate(parts, 1):
+        title = "Security Issues" if len(parts) == 1 else f"Security Issues ({number}/{len(parts)})"
+        messages.append({
+            "attachments": [
+                {
+                    "fallback": f"{slack_message}{part}",
+                    "pretext": f"{slack_message}",
+                    "color": "#D00000",
+                    "mrkdwn_in": ["pretext", "fields"],
+                    "fields": [
+                        {
+                            "title": title,
+                            "value": f"{part}",
+                            "short": False
+                        }
+                    ]
+                }
+            ]
+        })
 
-    send_to_slack(data)
+    pending_messages[url] = messages
+    send_pending_messages(url)
 
 def main():
     if isinstance(sys.stdout, io.TextIOWrapper):
