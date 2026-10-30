@@ -34,7 +34,7 @@ ccbot
 Before running the script, ensure you set up the following configurations:
 
 - `SLACK_WEBHOOK_URL`: Set your Slack webhook URL as an environment variable.
-- `RSS_URL`: Google Chrome Releases RSS feed URL.
+- `RSS_URL`: Google Chrome Releases feed URL. CCBot reads Blogger's own Atom feed with `redirect=false`, because the FeedBurner copy it otherwise redirects to is served stale.
 - `REFRESH_INTERVAL_SECONDS`: Time interval for checking updates in seconds.
 
 ## Functionality

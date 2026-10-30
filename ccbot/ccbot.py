@@ -12,7 +12,7 @@ import requests
 
 SLACK_BULLETPOINT = ' \u2022   '
 SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
-RSS_URL = [ "https://feeds.feedburner.com/GoogleChromeReleases" ] #, "https://www.blogger.com/feeds/8982037438137564684/posts/default" ] XXX: blogger.com feed seems dead
+RSS_URL = [ "https://www.blogger.com/feeds/8982037438137564684/posts/default?redirect=false" ]
 REFRESH_INTERVAL_SECONDS = 600
 HTTP_TIMEOUT_SECONDS = 30
 FEED_END = re.compile(rb"</(feed|rss|rdf:RDF)>\s*\Z")
