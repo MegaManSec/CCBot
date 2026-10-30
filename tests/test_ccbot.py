@@ -1,3 +1,4 @@
+import io
 import unittest
 from unittest.mock import patch
 
@@ -265,3 +266,17 @@ class ArticleTests(unittest.TestCase):
             ccbot.process_rss_entry(entry)
         value = send.call_args.args[0]["attachments"][0]["fields"][0]["value"]
         self.assertIn("no CVEs detected", value)
+
+
+class OutputTests(unittest.TestCase):
+    def test_main_line_buffers_text_stdout_only(self):
+        for stdout in (io.TextIOWrapper(io.BytesIO()), io.StringIO(), None):
+            with self.subTest(stdout=type(stdout).__name__), \
+                    patch.object(ccbot.sys, "stdout", stdout), \
+                    patch.object(ccbot, "get_all_rss_entries", return_value=[]), \
+                    patch.object(ccbot.time, "sleep", side_effect=StopPolling()), \
+                    patch("builtins.print"):
+                with self.assertRaises(StopPolling):
+                    ccbot.main()
+                if isinstance(stdout, io.TextIOWrapper):
+                    self.assertTrue(stdout.line_buffering)

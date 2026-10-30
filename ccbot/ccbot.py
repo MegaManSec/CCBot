@@ -4,10 +4,12 @@
 # Licensed under the AGPL-3.0 License. You should have received a copy of the GNU Affero General Public License along with CCBot. If not, see <https://www.gnu.org/licenses/>.
 
 import feedparser
+import io
 import time
 from bs4 import BeautifulSoup
 import re
 import os
+import sys
 import requests
 
 SLACK_BULLETPOINT = ' \u2022   '
@@ -200,6 +202,8 @@ def process_rss_entry(entry):
     send_to_slack(data)
 
 def main():
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(line_buffering=True)
     seen_urls = []
 
     while True:
