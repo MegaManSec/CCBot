@@ -54,8 +54,10 @@ def send_to_slack(message):
     if delay > 0:
         time.sleep(delay)
 
-    response = requests.post(SLACK_WEBHOOK, json=message, timeout=HTTP_TIMEOUT_SECONDS)
-    last_webhook_post = time.monotonic()
+    try:
+        response = requests.post(SLACK_WEBHOOK, json=message, timeout=HTTP_TIMEOUT_SECONDS)
+    finally:
+        last_webhook_post = time.monotonic()
     response.raise_for_status()
 
 # Send a post's pending Slack messages in order, keeping the unsent ones if one fails.

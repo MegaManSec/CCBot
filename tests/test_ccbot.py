@@ -227,7 +227,7 @@ class SlackDeliveryTests(unittest.TestCase):
         last_post.start()
         self.addCleanup(last_post.stop)
         sleep = patch.object(ccbot.time, "sleep")
-        sleep.start()
+        self.sleep = sleep.start()
         self.addCleanup(sleep.stop)
 
     def test_rejected_messages_raise_for_retry(self):
@@ -245,6 +245,21 @@ class SlackDeliveryTests(unittest.TestCase):
             ccbot.send_to_slack(message)
         self.assertEqual(post.call_args.kwargs["json"], message)
         self.assertGreater(post.call_args.kwargs["timeout"], 0)
+
+    def test_failed_posts_count_toward_pacing(self):
+        clock = [100.0]
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        self.sleep.side_effect = sleep
+        with patch.object(ccbot, "SLACK_WEBHOOK", "https://example.test/webhook"), \
+                patch.object(ccbot.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(ccbot.requests, "post", side_effect=[requests.ConnectionError("Disconnected"), make_response()]):
+            with self.assertRaises(requests.ConnectionError):
+                ccbot.send_to_slack({"text": "security update"})
+            ccbot.send_to_slack({"text": "security update"})
+        self.sleep.assert_called_once_with(1)
 
 
 class FeedTests(unittest.TestCase):
