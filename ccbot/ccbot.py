@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # This file is an original work developed by Joshua Rogers<https://joshua.hu/>.
-# Licensed under the AGPL-3.0 License. You should have received a copy of the GNU Affero General Public License along with CCBot. If not, see <https://www.gnu.org/licenses/>.
+# Licensed under the AGPL-3.0-or-later License. You should have received a copy of the GNU Affero General Public License along with CCBot. If not, see <https://www.gnu.org/licenses/>.
 
 import feedparser
 import io

@@ -39,10 +39,10 @@ setup(
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
         "Programming Language :: Python :: 3.13",
-        "License :: OSI Approved :: GNU Affero General Public License v3",
         "Operating System :: OS Independent",
         "Topic :: Security",
         "Intended Audience :: System Administrators",
     ],
-    license="AGPL-3.0",
+    license_expression="AGPL-3.0-or-later",
+    license_files=["LICENSE"],
 )

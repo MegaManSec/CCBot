@@ -113,4 +113,4 @@ python -m unittest discover -s tests
 ```
 
 ## License
-This project is licensed under [AGPL-3.0](https://github.com/MegaManSec/CCBot/blob/main/LICENSE).
+This project is licensed under [AGPL-3.0-or-later](https://github.com/MegaManSec/CCBot/blob/main/LICENSE).
