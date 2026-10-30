@@ -61,11 +61,11 @@ For each release, CCBot sends a Slack attachment with a red bar:
 - **URL**: Link to the release post.
 - **Security Issues**: One line per CVE, with its severity, CVE ID and description.
 
-Each message holds up to 2,000 characters of Security Issues. A longer list is split across several messages, numbered "Security Issues (1/2)", "Security Issues (2/2)" and so on, each with the timestamp and URL. A CVE is never split between messages.
+Each message holds up to 2,000 characters of Security Issues. A longer list is split across several messages, numbered "Security Issues (1/2)", "Security Issues (2/2)" and so on, each with the timestamp and URL. A CVE is never split between messages; a single CVE entry longer than 2,000 characters is cut and ends with `[...truncated...]`.
 
 ## Notes
-- The script runs until stopped, checking the feed every 10 minutes. A post that fails, for example because it can't be fetched and the feed lists no CVEs for it, or because Slack rejects a message, is retried at the next check, without resending the messages already delivered.
-- At startup, CCBot records the posts already in the feed and doesn't alert on them, so the first message arrives with the next Stable desktop release. This record is kept in memory only: after a restart, posts published while CCBot was stopped, and posts waiting to be retried, are never alerted.
+- The script runs until stopped, checking the feed every 10 minutes. A post that fails, for example because it can't be fetched and the feed lists no CVEs for it, or because Slack rejects a message, is retried at the next check. The retry sends only the messages not yet delivered, so a message Slack accepted but whose response was lost can arrive twice. Messages still unsent when the post drops out of the feed, for example because the webhook keeps failing for about a week, are not retried.
+- At startup, CCBot records the posts already in the feed and doesn't alert on them, so the first message arrives with the next Stable desktop release. This record and the retries are kept in memory only: after a restart, posts published while CCBot was stopped are never alerted, and messages waiting to be retried are never sent, although earlier messages for the same post may already have been delivered.
 - If a post contains the word "security" but no CVEs could be extracted, CCBot still notifies Slack for manual verification, with `Article contained the word 'security' but no CVEs detected. Someone should double-check..`
 - CVEs are matched with regular expressions, first against the rendered text of the post, then against the post's HTML in the feed. If Google changes the post format, CVEs may stop being detected; the manual-verification message is the fallback.
 
@@ -90,7 +90,7 @@ The script:
 
 When it finishes, it prints `ccbot has been installed, the service is started, and log rotation is set up.` and the paths it used. If creating the virtual environment fails, delete `/opt/ccbot` before running the script again.
 
-The URL argument is optional and sets the service's `SLACK_WEBHOOK_URL`. Without it, the service still starts, with an empty webhook, so alerts are only written to `/var/log/ccbot.log`. To set or change the webhook later, run the installer again with the URL, or edit `/etc/systemd/system/ccbot.service` and run:
+The URL argument is optional and sets the service's `SLACK_WEBHOOK_URL`. On a first install without it, the service still starts with an empty webhook, so alerts are only written to `/var/log/ccbot.log`. To set or change the webhook later, run the installer again with the URL, or edit `/etc/systemd/system/ccbot.service` and run:
 
 ```bash
 sudo systemctl daemon-reload
