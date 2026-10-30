@@ -170,15 +170,15 @@ def extract_security_content_from_url(url):
 def process_rss_entry(entry):
     url = normalize_url(entry.link)
 
+    if url in pending_messages:
+        send_pending_messages(url)
+        return
+
     if entry.title.lower() != "stable channel update for desktop":
         if not hasattr(entry, "tags"):
             return
         if not contains_specified_tags(entry.tags):
             return
-
-    if url in pending_messages:
-        send_pending_messages(url)
-        return
 
     article_content = entry.get('summary', entry.get('description', ''))
     formatted_time = format_published_time(entry.published_parsed)

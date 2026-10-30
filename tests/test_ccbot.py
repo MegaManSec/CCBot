@@ -135,6 +135,18 @@ class LongMessageTests(unittest.TestCase):
         extract.assert_called_once()
         self.assertEqual(ccbot.pending_messages, {})
 
+    def test_started_posts_finish_after_their_title_and_tags_change(self):
+        with patch.object(ccbot, "extract_security_content_from_url", return_value=make_cves(60)), \
+                patch.object(ccbot, "send_to_slack", side_effect=[None, requests.HTTPError("rejected"), None, None]) as send:
+            with self.assertRaises(requests.HTTPError):
+                ccbot.process_rss_entry(self.entry)
+            self.entry["title"] = "Chrome Beta for Desktop Update"
+            self.entry["tags"] = [feedparser.FeedParserDict(term="Beta updates")]
+            ccbot.process_rss_entry(self.entry)
+        titles = [call.args[0]["attachments"][0]["fields"][0]["title"] for call in send.call_args_list]
+        self.assertEqual(titles, [f"Security Issues ({number}/3)" for number in (1, 2, 2, 3)])
+        self.assertEqual(ccbot.pending_messages, {})
+
     def test_retries_resend_the_stored_messages_when_the_source_changes(self):
         cves = [("High", f"CVE-2026-{10000 + i}", "Use after free in V8") for i in range(60)]
         self.entry["summary"] = "".join(f"<span>{severity}</span><span>{cve}: {description}.</span>" for severity, cve, description in cves)
