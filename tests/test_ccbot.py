@@ -1,5 +1,6 @@
+import io
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import requests
 import feedparser
@@ -30,6 +31,23 @@ def make_feed(*names):
     )
 
 
+def make_cves(count):
+    descriptions = (
+        "Use after free in V8",
+        "Inappropriate implementation in Picture-in-Picture",
+        "Heap buffer overflow in ANGLE",
+        "Insufficient validation of untrusted input in Mojo",
+        "Out of bounds memory access in WebGPU",
+        "Side-channel information leakage in Navigation and Loading",
+    )
+    severities = ("Critical", "High", "Medium", "Low")
+    return [(severities[i % 4], f"CVE-2026-{118300 + i}", descriptions[i % 6]) for i in range(count)]
+
+
+def format_cves(cves):
+    return "".join(f" •   *[{severity}]*: {cve}: {description}\n" for severity, cve, description in cves)
+
+
 class StopPolling(BaseException):
     pass
 
@@ -50,8 +68,175 @@ class SlackMessageTests(unittest.TestCase):
                 self.assertTrue(result.endswith(marker))
                 self.assertTrue(message.startswith(result[:-len(marker)]))
 
+    def test_parts_fill_up_to_exactly_the_field_limit(self):
+        half = ccbot.SLACK_FIELD_LIMIT // 2
+        issues = ["a" * (half - 1) + "\n", "b" * (half - 1) + "\n"]
+        self.assertEqual(ccbot.split_slack_message(issues), ["".join(issues)])
+        issues[1] = "b" * half + "\n"
+        self.assertEqual(ccbot.split_slack_message(issues), issues)
+
+
+class LongMessageTests(unittest.TestCase):
+    header = "*[02/01/24 00:00:00]*: URL: https://example.test/release\n"
+
+    def setUp(self):
+        state = patch.dict(ccbot.pending_messages, clear=True)
+        state.start()
+        self.addCleanup(state.stop)
+        last_post = patch.object(ccbot, "last_webhook_post", float("-inf"))
+        last_post.start()
+        self.addCleanup(last_post.stop)
+        sleep = patch.object(ccbot.time, "sleep")
+        self.sleep = sleep.start()
+        self.addCleanup(sleep.stop)
+        self.entry = feedparser.parse(make_feed("release")).entries[0]
+
+    def send(self, cves):
+        with patch.object(ccbot, "extract_security_content_from_url", return_value=cves), \
+                patch.object(ccbot, "send_to_slack") as send_to_slack:
+            ccbot.process_rss_entry(self.entry)
+        return [call.args[0]["attachments"][0] for call in send_to_slack.call_args_list]
+
+    def test_long_lists_are_split_into_numbered_messages(self):
+        cves = make_cves(60)
+        attachments = self.send(cves)
+        values = [attachment["fields"][0]["value"] for attachment in attachments]
+        self.assertGreaterEqual(len(attachments), 3)
+        self.assertEqual("".join(values), format_cves(cves))
+        for number, attachment in enumerate(attachments, 1):
+            value = attachment["fields"][0]["value"]
+            with self.subTest(part=number):
+                self.assertLessEqual(len(value), 2000)
+                self.assertTrue(value.endswith("\n"))
+                self.assertEqual(attachment["fields"][0]["title"], f"Security Issues ({number}/{len(attachments)})")
+                self.assertEqual(attachment["pretext"], self.header)
+                self.assertEqual(attachment["fallback"], self.header + value)
+        self.assertEqual(ccbot.pending_messages, {})
+
+    def test_short_lists_keep_the_single_message_format(self):
+        cves = make_cves(3)
+        with patch.object(ccbot, "extract_security_content_from_url", return_value=cves), \
+                patch.object(ccbot, "send_to_slack") as send:
+            ccbot.process_rss_entry(self.entry)
+        issues = format_cves(cves)
+        send.assert_called_once_with({
+            "attachments": [{
+                "fallback": self.header + issues,
+                "pretext": self.header,
+                "color": "#D00000",
+                "mrkdwn_in": ["pretext", "fields"],
+                "fields": [{"title": "Security Issues", "value": issues, "short": False}],
+            }]
+        })
+
+    def test_failed_parts_resume_without_resending_delivered_parts(self):
+        cves = make_cves(60)
+        with patch.object(ccbot, "extract_security_content_from_url", return_value=cves) as extract, \
+                patch.object(ccbot, "send_to_slack", side_effect=[None, requests.HTTPError("rejected"), None, None]) as send:
+            with self.assertRaises(requests.HTTPError):
+                ccbot.process_rss_entry(self.entry)
+            self.assertEqual(len(ccbot.pending_messages["https://example.test/release"]), 2)
+            ccbot.process_rss_entry(self.entry)
+        titles = [call.args[0]["attachments"][0]["fields"][0]["title"] for call in send.call_args_list]
+        self.assertEqual(titles, [f"Security Issues ({number}/3)" for number in (1, 2, 2, 3)])
+        extract.assert_called_once()
+        self.assertEqual(ccbot.pending_messages, {})
+
+    def test_started_posts_finish_after_their_title_and_tags_change(self):
+        with patch.object(ccbot, "extract_security_content_from_url", return_value=make_cves(60)), \
+                patch.object(ccbot, "send_to_slack", side_effect=[None, requests.HTTPError("rejected"), None, None]) as send:
+            with self.assertRaises(requests.HTTPError):
+                ccbot.process_rss_entry(self.entry)
+            self.entry["title"] = "Chrome Beta for Desktop Update"
+            self.entry["tags"] = [feedparser.FeedParserDict(term="Beta updates")]
+            ccbot.process_rss_entry(self.entry)
+        titles = [call.args[0]["attachments"][0]["fields"][0]["title"] for call in send.call_args_list]
+        self.assertEqual(titles, [f"Security Issues ({number}/3)" for number in (1, 2, 2, 3)])
+        self.assertEqual(ccbot.pending_messages, {})
+
+    def test_retries_resend_the_stored_messages_when_the_source_changes(self):
+        cves = [("High", f"CVE-2026-{10000 + i}", "Use after free in V8") for i in range(60)]
+        self.entry["summary"] = "".join(f"<span>{severity}</span><span>{cve}: {description}.</span>" for severity, cve, description in cves)
+        with patch.object(ccbot, "extract_security_content_from_url", side_effect=[requests.ConnectionError("Disconnected"), cves]), \
+                patch.object(ccbot, "send_to_slack", side_effect=[None, requests.HTTPError("rejected"), None, None, None]) as send:
+            with self.assertRaises(requests.HTTPError):
+                ccbot.process_rss_entry(self.entry)
+            ccbot.process_rss_entry(self.entry)
+        fields = [call.args[0]["attachments"][0]["fields"][0] for call in send.call_args_list]
+        delivered = fields[:1] + fields[2:]
+        lines = "".join(field["value"] for field in delivered).splitlines()
+        self.assertEqual([line.split(": ")[1] for line in lines], [cve for severity, cve, description in cves])
+        self.assertEqual([field["title"] for field in delivered], [f"Security Issues ({number}/{len(delivered)})" for number in range(1, len(delivered) + 1)])
+        self.assertEqual(ccbot.pending_messages, {})
+
+    def test_entries_with_newlines_stay_in_one_message(self):
+        cves = [("High", f"CVE-2026-{10000 + i}", "Use after free in V8") for i in range(37)]
+        cves.append(("High", "CVE-2026-20000", "Use after free in V8\nwhen handling crafted JavaScript content"))
+        values = [attachment["fields"][0]["value"] for attachment in self.send(cves)]
+        self.assertEqual(values, [format_cves(cves[:-1]), format_cves(cves[-1:])])
+
+    def test_overlong_entries_are_truncated_on_their_own(self):
+        cves = [
+            ("High", "CVE-2026-1111", "Use after free in V8"),
+            ("High", "CVE-2026-2222", "x" * 2100),
+            ("Low", "CVE-2026-3333", "Type Confusion in V8"),
+        ]
+        marker = "[...truncated...]"
+        values = [attachment["fields"][0]["value"] for attachment in self.send(cves)]
+        self.assertEqual(len(values), 3)
+        self.assertEqual(values[0], format_cves(cves[:1]))
+        self.assertEqual(len(values[1]), 2000)
+        self.assertTrue(values[1].endswith(marker))
+        self.assertTrue(format_cves(cves[1:2]).startswith(values[1][:-len(marker)]))
+        self.assertEqual(values[2], format_cves(cves[2:]))
+
+    def test_webhook_posts_are_paced_across_releases(self):
+        clock = [100.0]
+        posted = []
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        def post(*args, **kwargs):
+            posted.append(clock[0])
+            return make_response()
+
+        self.sleep.side_effect = sleep
+        entries = feedparser.parse(make_feed("first", "second", "third")).entries
+        with patch.object(ccbot, "extract_security_content_from_url", side_effect=[make_cves(60), make_cves(3), make_cves(3)]), \
+                patch.object(ccbot, "SLACK_WEBHOOK", "https://example.test/webhook"), \
+                patch.object(ccbot.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(ccbot.requests, "post", side_effect=post):
+            ccbot.process_rss_entry(entries[0])
+            clock[0] += 0.25
+            ccbot.process_rss_entry(entries[1])
+            clock[0] += 5
+            ccbot.process_rss_entry(entries[2])
+        self.assertEqual(posted, [100.0, 101.0, 102.0, 103.0, 108.0])
+        self.assertEqual([call.args[0] for call in self.sleep.call_args_list], [1, 1, 0.75])
+
+    def test_printed_alerts_are_not_paced(self):
+        entries = feedparser.parse(make_feed("first", "second")).entries
+        for webhook in (None, ""):
+            with self.subTest(webhook=webhook), \
+                    patch.object(ccbot, "extract_security_content_from_url", return_value=make_cves(60)), \
+                    patch.object(ccbot, "SLACK_WEBHOOK", webhook), \
+                    patch("builtins.print") as log:
+                for entry in entries:
+                    ccbot.process_rss_entry(entry)
+                self.assertEqual(log.call_count, 6)
+                self.sleep.assert_not_called()
+
 
 class SlackDeliveryTests(unittest.TestCase):
+    def setUp(self):
+        last_post = patch.object(ccbot, "last_webhook_post", float("-inf"))
+        last_post.start()
+        self.addCleanup(last_post.stop)
+        sleep = patch.object(ccbot.time, "sleep")
+        self.sleep = sleep.start()
+        self.addCleanup(sleep.stop)
+
     def test_rejected_messages_raise_for_retry(self):
         for status in (400, 429, 500):
             with self.subTest(status=status), \
@@ -68,12 +253,33 @@ class SlackDeliveryTests(unittest.TestCase):
         self.assertEqual(post.call_args.kwargs["json"], message)
         self.assertGreater(post.call_args.kwargs["timeout"], 0)
 
+    def test_failed_posts_count_toward_pacing(self):
+        clock = [100.0]
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        self.sleep.side_effect = sleep
+        with patch.object(ccbot, "SLACK_WEBHOOK", "https://example.test/webhook"), \
+                patch.object(ccbot.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(ccbot.requests, "post", side_effect=[requests.ConnectionError("Disconnected"), make_response()]):
+            with self.assertRaises(requests.ConnectionError):
+                ccbot.send_to_slack({"text": "security update"})
+            ccbot.send_to_slack({"text": "security update"})
+        self.sleep.assert_called_once_with(1)
+
 
 class FeedTests(unittest.TestCase):
     def setUp(self):
         cache = patch.dict(ccbot.cached_feeds, clear=True)
         cache.start()
         self.addCleanup(cache.stop)
+        state = patch.dict(ccbot.pending_messages, clear=True)
+        state.start()
+        self.addCleanup(state.stop)
+        pacing = patch.object(ccbot, "SLACK_POST_INTERVAL_SECONDS", 0)
+        pacing.start()
+        self.addCleanup(pacing.stop)
 
     def test_unchanged_feed_replays_cached_entries(self):
         modified = "Tue, 02 Jan 2024 00:00:00 GMT"
@@ -151,6 +357,27 @@ class FeedTests(unittest.TestCase):
             with self.assertRaises(StopPolling):
                 ccbot.main()
         self.assertEqual(post.call_count, 2)
+
+    def test_multi_part_alerts_resume_on_304_after_a_failed_part(self):
+        cves = make_cves(60)
+        feeds = [
+            make_response(body=make_feed("historical")),
+            make_response(body=make_feed("release", "historical")),
+            make_response(304),
+        ]
+        with patch.object(ccbot.requests, "get", side_effect=feeds), \
+                patch.object(ccbot.requests, "post", side_effect=[make_response(), make_response(500), make_response(), make_response()]) as post, \
+                patch.object(ccbot, "SLACK_WEBHOOK", "https://example.test/webhook"), \
+                patch.object(ccbot, "extract_security_content_from_url", return_value=cves) as extract, \
+                patch.object(ccbot.time, "sleep", side_effect=[None, StopPolling()]), \
+                patch("builtins.print"):
+            with self.assertRaises(StopPolling):
+                ccbot.main()
+        fields = [call.kwargs["json"]["attachments"][0]["fields"][0] for call in post.call_args_list]
+        self.assertEqual([field["title"] for field in fields], [f"Security Issues ({number}/3)" for number in (1, 2, 2, 3)])
+        self.assertEqual("".join(field["value"] for field in fields[:1] + fields[2:]), format_cves(cves))
+        extract.assert_called_once()
+        self.assertEqual(ccbot.pending_messages, {})
 
     def test_startup_retries_failed_feed_before_establishing_baseline(self):
         feeds = [
@@ -265,3 +492,17 @@ class ArticleTests(unittest.TestCase):
             ccbot.process_rss_entry(entry)
         value = send.call_args.args[0]["attachments"][0]["fields"][0]["value"]
         self.assertIn("no CVEs detected", value)
+
+
+class OutputTests(unittest.TestCase):
+    def test_main_line_buffers_text_stdout_only(self):
+        for stdout in (io.TextIOWrapper(io.BytesIO()), io.StringIO(), None):
+            with self.subTest(stdout=type(stdout).__name__), \
+                    patch.object(ccbot.sys, "stdout", stdout), \
+                    patch.object(ccbot, "get_all_rss_entries", return_value=[]), \
+                    patch.object(ccbot.time, "sleep", side_effect=StopPolling()), \
+                    patch("builtins.print"):
+                with self.assertRaises(StopPolling):
+                    ccbot.main()
+                if isinstance(stdout, io.TextIOWrapper):
+                    self.assertTrue(stdout.line_buffering)
