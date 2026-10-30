@@ -68,6 +68,13 @@ class SlackMessageTests(unittest.TestCase):
                 self.assertTrue(result.endswith(marker))
                 self.assertTrue(message.startswith(result[:-len(marker)]))
 
+    def test_parts_fill_up_to_exactly_the_field_limit(self):
+        half = ccbot.SLACK_FIELD_LIMIT // 2
+        issues = ["a" * (half - 1) + "\n", "b" * (half - 1) + "\n"]
+        self.assertEqual(ccbot.split_slack_message(issues), ["".join(issues)])
+        issues[1] = "b" * half + "\n"
+        self.assertEqual(ccbot.split_slack_message(issues), issues)
+
 
 class LongMessageTests(unittest.TestCase):
     header = "*[02/01/24 00:00:00]*: URL: https://example.test/release\n"
