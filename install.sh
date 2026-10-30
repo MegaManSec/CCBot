@@ -14,13 +14,12 @@ SERVICE_FILE="/etc/systemd/system/ccbot.service"
 
 if [ "$#" -eq 1 ]; then
     SLACK_WEBHOOK_URL="$1"
-elif [ -z "${SLACK_WEBHOOK_URL+x}" ] && [ -f "$SERVICE_FILE" ]; then
-    systemctl daemon-reload
-    SLACK_WEBHOOK_URL=$(systemctl show -p Environment --value ccbot | tr ' ' '\n' | sed -n 's/^SLACK_WEBHOOK_URL=//p')
-    if [ -z "$SLACK_WEBHOOK_URL" ]; then
-        echo "The existing ccbot service has no webhook configured. Pass the webhook URL as an argument, or \"\" to only log alerts." >&2
-        exit 1
-    fi
+fi
+
+if [ -z "${SLACK_WEBHOOK_URL+x}" ] && [ -f "$SERVICE_FILE" ]; then
+    ENVIRONMENT=$(grep '^Environment' "$SERVICE_FILE" || true)
+else
+    ENVIRONMENT="Environment=SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL//%/%%}"
 fi
 
 cat <<EOL > "$SERVICE_FILE"
@@ -33,7 +32,7 @@ Type=simple
 ExecStart=$VENV_PATH/bin/ccbot
 Restart=always
 DynamicUser=yes
-Environment=SLACK_WEBHOOK_URL=$SLACK_WEBHOOK_URL
+$ENVIRONMENT
 StandardOutput=append:/var/log/ccbot.log
 StandardError=append:/var/log/ccbot_error.log
 

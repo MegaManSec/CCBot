@@ -1,24 +1,8 @@
 import os
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 import unittest
-
-
-SYSTEMCTL = """
-import os, shlex, sys
-
-with open(os.environ["CCBOT_TEST_COMMANDS"], "a") as log:
-    print(*sys.argv[1:], file=log)
-if sys.argv[1] == "show":
-    environment = {}
-    with open(os.environ["CCBOT_TEST_SERVICE"]) as service:
-        for line in service:
-            if line.startswith("Environment="):
-                environment.update(word.split("=", 1) for word in shlex.split(line[len("Environment="):]))
-    print(" ".join(f"{name}={value}" for name, value in environment.items()))
-"""
 
 
 class InstallerTests(unittest.TestCase):
@@ -31,7 +15,7 @@ class InstallerTests(unittest.TestCase):
         (self.root / "bin").mkdir()
         for command, stub in (
             ("venv/bin/pip", "#!/bin/sh\nexit 0\n"),
-            ("bin/systemctl", f"#!{sys.executable} -I\n{SYSTEMCTL}"),
+            ("bin/systemctl", '#!/bin/sh\nprintf "%s\\n" "$*" >> "$CCBOT_TEST_COMMANDS"\n'),
         ):
             path = self.root / command
             path.write_text(stub)
@@ -48,15 +32,14 @@ class InstallerTests(unittest.TestCase):
         self.script = self.root / "install.sh"
         self.script.write_text(script)
 
-    def run_installer(self, *args, webhook=None, check=True):
+    def run_installer(self, *args, webhook=None):
         environment = dict(os.environ)
         environment["PATH"] = str(self.root / "bin") + os.pathsep + environment["PATH"]
         environment["CCBOT_TEST_COMMANDS"] = str(self.root / "commands.log")
-        environment["CCBOT_TEST_SERVICE"] = str(self.service)
         environment.pop("SLACK_WEBHOOK_URL", None)
         if webhook is not None:
             environment["SLACK_WEBHOOK_URL"] = webhook
-        return subprocess.run(["bash", str(self.script), *args], env=environment, check=check, capture_output=True, text=True)
+        subprocess.run(["bash", str(self.script), *args], env=environment, check=True, capture_output=True)
 
     def commands(self):
         return (self.root / "commands.log").read_text().splitlines()
@@ -73,32 +56,25 @@ class InstallerTests(unittest.TestCase):
         (self.root / "commands.log").unlink()
         self.run_installer()
         self.assert_webhook("https://example.test/original")
-        self.assertEqual(
-            self.commands(),
-            ["daemon-reload", "show -p Environment --value ccbot", "daemon-reload", "enable ccbot", "restart ccbot"],
-        )
+        self.assertEqual(self.commands(), ["daemon-reload", "enable ccbot", "restart ccbot"])
 
-    def test_reinstall_preserves_the_webhook_systemd_uses(self):
+    def test_reinstall_keeps_environment_lines_verbatim(self):
         for configuration in (
-            'Environment="SLACK_WEBHOOK_URL=https://example.test/current"',
-            "Environment=SLACK_WEBHOOK_URL=https://example.test/old\nEnvironment=SLACK_WEBHOOK_URL=https://example.test/current",
+            'Environment="SLACK_WEBHOOK_URL=https://example.test/a?key=1&stream=alerts"',
+            "Environment=SLACK_WEBHOOK_URL=https://example.test/a%%2Fb",
             "Environment=HTTPS_PROXY=http://proxy.test SLACK_WEBHOOK_URL=https://example.test/current",
+            "Environment=SLACK_WEBHOOK_URL=https://example.test/old\nEnvironment=SLACK_WEBHOOK_URL=https://example.test/current",
+            "EnvironmentFile=/etc/ccbot.env",
         ):
             with self.subTest(configuration=configuration):
-                self.service.write_text(f"[Service]\n{configuration}\n")
+                self.service.write_text(f"[Service]\nType=simple\n{configuration}\nRestart=always\n")
                 self.run_installer()
-                self.assert_webhook("https://example.test/current")
+                self.assertIn(f"\n{configuration}\n", self.service.read_text())
+                self.assertIn("\nDynamicUser=yes\n", self.service.read_text())
 
-    def test_reinstall_without_a_configured_webhook_fails(self):
-        service = "[Service]\nEnvironment=SLACK_WEBHOOK_URL=\n"
-        self.service.write_text(service)
-        result = self.run_installer(check=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("has no webhook configured", result.stderr)
-        self.assertEqual(self.service.read_text(), service)
-        self.assertNotIn("restart ccbot", self.commands())
-        self.run_installer("")
-        self.assert_webhook("")
+    def test_explicit_webhooks_escape_systemd_specifiers(self):
+        self.run_installer("https://example.test/a%2Fb")
+        self.assert_webhook("https://example.test/a%%2Fb")
 
     def test_install_and_reinstall_restart_the_service(self):
         self.run_installer("https://example.test/original")
