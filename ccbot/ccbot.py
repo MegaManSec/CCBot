@@ -72,6 +72,8 @@ def send_pending_messages(url):
 def get_rss_entries(rss_url):
     cached_feed = cached_feeds.get(rss_url)
     headers = {"Cache-Control": "max-age=0"}
+    if cached_feed and cached_feed["etag"]:
+        headers["If-None-Match"] = cached_feed["etag"]
     if cached_feed and cached_feed["modified"]:
         headers["If-Modified-Since"] = cached_feed["modified"]
 
@@ -89,6 +91,7 @@ def get_rss_entries(rss_url):
 
     if feed.entries:
         cached_feeds[rss_url] = {
+            "etag": response.headers.get("ETag"),
             "modified": response.headers.get("Last-Modified"),
             "entries": feed.entries,
         }

@@ -283,8 +283,9 @@ class FeedTests(unittest.TestCase):
 
     def test_unchanged_feed_replays_cached_entries(self):
         modified = "Tue, 02 Jan 2024 00:00:00 GMT"
+        etag = 'W/"0123abcd"'
         responses = [
-            make_response(body=make_feed("release"), headers={"Last-Modified": modified}),
+            make_response(body=make_feed("release"), headers={"Last-Modified": modified, "ETag": etag}),
             make_response(304),
         ]
         with patch.object(ccbot.requests, "get", side_effect=responses) as get:
@@ -292,8 +293,21 @@ class FeedTests(unittest.TestCase):
             replayed = ccbot.get_rss_entries("https://example.test/feed")
         self.assertEqual([entry.link for entry in replayed], ["https://example.test/release"])
         self.assertEqual(original, replayed)
+        self.assertNotIn("If-None-Match", get.call_args_list[0].kwargs["headers"])
+        self.assertEqual(get.call_args.kwargs["headers"]["If-None-Match"], etag)
         self.assertEqual(get.call_args.kwargs["headers"]["If-Modified-Since"], modified)
         self.assertGreater(get.call_args.kwargs["timeout"], 0)
+
+    def test_feed_without_validators_is_fetched_unconditionally(self):
+        responses = [
+            make_response(body=make_feed("release")),
+            make_response(body=make_feed("release")),
+        ]
+        with patch.object(ccbot.requests, "get", side_effect=responses) as get:
+            ccbot.get_rss_entries("https://example.test/feed")
+            ccbot.get_rss_entries("https://example.test/feed")
+        self.assertNotIn("If-None-Match", get.call_args.kwargs["headers"])
+        self.assertNotIn("If-Modified-Since", get.call_args.kwargs["headers"])
 
     def test_invalid_feeds_cannot_initialize_the_cache(self):
         responses = [
@@ -395,7 +409,7 @@ class FeedTests(unittest.TestCase):
 
     def test_startup_retries_empty_feed_before_establishing_baseline(self):
         feeds = [
-            make_response(body=make_feed(), headers={"Last-Modified": "Tue, 02 Jan 2024 00:00:00 GMT"}),
+            make_response(body=make_feed(), headers={"Last-Modified": "Tue, 02 Jan 2024 00:00:00 GMT", "ETag": 'W/"empty"'}),
             make_response(body=make_feed("historical")),
             make_response(304),
         ]
@@ -407,6 +421,7 @@ class FeedTests(unittest.TestCase):
                 ccbot.main()
         process.assert_not_called()
         self.assertNotIn("If-Modified-Since", get.call_args_list[1].kwargs["headers"])
+        self.assertNotIn("If-None-Match", get.call_args_list[1].kwargs["headers"])
 
 
 class PollingTests(unittest.TestCase):
